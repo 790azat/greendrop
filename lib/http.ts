@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession, Role, Session } from './auth';
+import { flush } from './db';
 
 export function ok(data: any = { ok: true }) {
   return NextResponse.json(data);
@@ -24,7 +25,9 @@ export async function requireRole(...roles: Role[]): Promise<Session> {
 export function handler<T extends any[]>(fn: (...args: T) => Promise<Response>) {
   return async (...args: T) => {
     try {
-      return await fn(...args);
+      const res = await fn(...args);
+      await flush();
+      return res;
     } catch (e: any) {
       if (e instanceof HttpError) return err(e.message, e.status);
       console.error(e);

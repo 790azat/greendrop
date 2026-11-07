@@ -1,0 +1,11 @@
+{
+  "appId": "app.greendrop.client",
+  "appName": "GreenDrop",
+  "webDir": "public",
+  "server": {
+    "url": "https://greendrop-ten.vercel.app",
+    "cleartext": false
+  },
+  "ios": { "contentInset": "always" },
+  "android": { "allowMixedContent": false }
+}
