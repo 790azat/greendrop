@@ -31,6 +31,10 @@ export const GET = handler(async () => {
       earned: sm[u.id]?.earned || 0,
       rating: sm[u.id]?.rating || null,
       orders: cm[u.id]?.orders || 0,
+      loc: u.data?.loc || null,
+      bonus: Number(u.data?.bonus || 0),
+      referralCode: u.data?.referralCode,
+      referredBy: u.data?.referredBy,
       spent: cm[u.id]?.spent || 0,
     })),
   });
@@ -58,6 +62,10 @@ export const POST = handler(async (req: Request) => {
   }
   if (b.action === 'block') {
     await q(`UPDATE users SET active=FALSE, data=$2 WHERE id=$1`, [u.id, JSON.stringify({ ...u.data, pending: false })]);
+    return ok();
+  }
+  if (b.action === 'bonus') {
+    await q(`UPDATE users SET data=$2 WHERE id=$1`, [u.id, JSON.stringify({ ...u.data, bonus: Math.max(0, Number(b.bonus) || 0) })]);
     return ok();
   }
   if (b.action === 'resetPin') {

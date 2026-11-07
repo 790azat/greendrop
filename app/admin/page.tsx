@@ -1,9 +1,12 @@
 'use client';
+import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
 import { Brand, LogoMark } from '@/components/Logo';
 import { OrderSummary, Timeline } from '@/components/OrderDetails';
 import { Badge, Modal, Spinner, api, addrLine, fmtDate, logout, toast, useMe, usePoll } from '@/components/ui';
-import { DEFAULT_SETTINGS, STATUS_LABEL, money } from '@/lib/domain';
+import { PAYMENT_LABEL, SERVICES, STATUS_LABEL, WEEKDAYS, money } from '@/lib/domain';
+
+const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
 
 export default function AdminPage() {
   const { me, reload } = useMe();
@@ -70,6 +73,8 @@ function Admin({ me, reload }: { me: any; reload: () => void }) {
     ['overview', 'Обзор'],
     ['orders', `Заказы${orders ? ` (${orders.length})` : ''}`],
     ['workers', `Исполнители${pendingWorkers.length ? ` · ${pendingWorkers.length} новых` : ''}`],
+    ['map', 'Карта'],
+    ['subs', 'Подписки'],
     ['clients', 'Клиенты'],
     ['settings', 'Настройки'],
   ];
@@ -85,7 +90,7 @@ function Admin({ me, reload }: { me: any; reload: () => void }) {
       </div>
       {me.demoDb && (
         <div className="banner">
-          Демо-режим: база данных не подключена, данные хранятся во временной памяти сервера и могут пропадать. Подключите Neon Postgres в Vercel → Storage.
+          Демо-хранилище: данные сохраняются снимками в Vercel Blob. Для работы с реальными клиентами подключите Neon Postgres (Vercel → Storage).
         </div>
       )}
       <div className="seg" style={{ marginBottom: 16 }}>
@@ -102,7 +107,9 @@ function Admin({ me, reload }: { me: any; reload: () => void }) {
           {tab === 'orders' && <Orders orders={orders} onOpen={setOpen} />}
           {tab === 'workers' && <Workers workers={workers} cur={cur} reload={loadUsers} />}
           {tab === 'clients' && <Clients clients={clients} cur={cur} />}
-          {tab === 'settings' && <SettingsForm settings={me.settings} onSaved={reload} />}
+          {tab === 'map' && <LiveMap orders={orders} workers={workers} onOpen={setOpen} />}
+          {tab === 'subs' && <AdminSubs cur={cur} />}
+          {tab === 'settings' && <SettingsForm onSaved={reload} />}
         </>
       )}
 
@@ -140,6 +147,8 @@ function Overview({ orders, workers, cur, onOpen, pending, goWorkers }: any) {
         <div className="stat"><div className="l">Выручка</div><div className="v">{money(revenue, cur)}</div></div>
         <div className="stat"><div className="l">Выплаты исполнителям</div><div className="v">{money(payout, cur)}</div></div>
         <div className="stat"><div className="l">Доход сервиса</div><div className="v">{money(revenue - payout, cur)}</div></div>
+        <div className="stat"><div className="l">Оплачено онлайн</div><div className="v">{money(orders.filter((o: any) => o.payment === 'online' && o.paymentStatus === 'paid').reduce((a: number, o: any) => a + (o.price || 0), 0), cur)}</div></div>
+        <div className="stat"><div className="l">Чаевые</div><div className="v">{money(orders.reduce((a: number, o: any) => a + (o.tip || 0), 0), cur)}</div></div>
         <div className="stat"><div className="l">Средняя оценка</div><div className="v">{avg} ★</div></div>
         <div className="stat"><div className="l">Активных исполнителей</div><div className="v">{workers.filter((w: any) => w.active).length}</div></div>
       </div>
@@ -183,7 +192,7 @@ function Orders({ orders, onOpen, compact }: { orders: any[]; onOpen: (id: strin
         <table className="t">
           <thead>
             <tr>
-              <th>№</th><th>Создан</th><th>Адрес</th><th>Клиент</th><th>Исполнитель</th><th>Мешки</th><th>Сумма</th><th>Статус</th>
+              <th>№</th><th>Создан</th><th>Услуга</th><th>Адрес</th><th>Клиент</th><th>Исполнитель</th><th>Мешки</th><th>Сумма</th><th>Статус</th>
             </tr>
           </thead>
           <tbody>
@@ -191,16 +200,17 @@ function Orders({ orders, onOpen, compact }: { orders: any[]; onOpen: (id: strin
               <tr key={o.id} className="tap" onClick={() => onOpen(o.id)}>
                 <td><b>{o.num}</b></td>
                 <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(o.createdAt)}</td>
+                <td title={SERVICES[o.service || 'trash'].title}>{SERVICES[o.service || 'trash'].icon}{o.subscriptionId ? ' 🔁' : ''}</td>
                 <td>{addrLine(o.address)}</td>
                 <td>{o.clientName}<div className="small muted">{o.clientPhone}</div></td>
                 <td>{o.workerName || <span className="muted">—</span>}</td>
                 <td>{o.bags}</td>
-                <td style={{ whiteSpace: 'nowrap' }}>{money(o.price, o.currency)}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>{money(o.price, o.currency)}{o.paymentStatus === 'paid' ? ' ✓' : ''}</td>
                 <td><Badge status={o.status} /></td>
               </tr>
             ))}
             {list.length === 0 && (
-              <tr><td colSpan={8} className="center muted" style={{ padding: 30 }}>Нет заказов</td></tr>
+              <tr><td colSpan={9} className="center muted" style={{ padding: 30 }}>Нет заказов</td></tr>
             )}
           </tbody>
         </table>
@@ -327,7 +337,7 @@ function Clients({ clients, cur }: any) {
   return (
     <div className="card table-wrap">
       <table className="t">
-        <thead><tr><th>Имя</th><th>Телефон</th><th>Заказов</th><th>Потратил</th><th>Регистрация</th></tr></thead>
+        <thead><tr><th>Имя</th><th>Телефон</th><th>Заказов</th><th>Потратил</th><th>Бонусы</th><th>Реф. код</th><th>Регистрация</th></tr></thead>
         <tbody>
           {clients.map((c: any) => (
             <tr key={c.id}>
@@ -335,60 +345,163 @@ function Clients({ clients, cur }: any) {
               <td><a href={`tel:${c.phone}`}>{c.phone}</a></td>
               <td>{c.orders}</td>
               <td>{money(c.spent, cur)}</td>
+              <td>{money(c.bonus, cur)}</td>
+              <td>{c.referralCode}{c.referredBy ? <div className="small muted">приглашён</div> : null}</td>
               <td>{new Date(c.createdAt).toLocaleDateString('ru-RU')}</td>
             </tr>
           ))}
-          {clients.length === 0 && <tr><td colSpan={5} className="center muted" style={{ padding: 30 }}>Пока нет клиентов</td></tr>}
+          {clients.length === 0 && <tr><td colSpan={7} className="center muted" style={{ padding: 30 }}>Пока нет клиентов</td></tr>}
         </tbody>
       </table>
     </div>
   );
 }
 
-const SETTING_LABELS: Record<string, string> = {
-  serviceArea: 'Город / зона обслуживания',
-  currency: 'Валюта',
-  basePrice: 'Цена за первый мешок',
-  extraBagPrice: 'Каждый следующий мешок',
-  largeBagExtra: 'Доплата за большой мешок (за шт.)',
-  bulkyPrice: 'Крупногабарит',
-  expressPrice: 'Срочный вынос (30 мин)',
-  workerSharePercent: 'Доля исполнителя, %',
-  maxBags: 'Максимум мешков в заказе',
-};
+const NUM_FIELDS: [string, string][] = [
+  ['basePrice', 'Цена за первый мешок'],
+  ['extraBagPrice', 'Каждый следующий мешок'],
+  ['largeBagExtra', 'Доплата за большой мешок (за шт.)'],
+  ['bulkyPrice', 'Крупный предмет к обычному заказу'],
+  ['recyclePrice', 'Вторсырьё, за мешок'],
+  ['bulkyItemPrice', 'Крупногабарит, за предмет'],
+  ['expressPrice', 'Срочный вынос (30 мин)'],
+  ['workerSharePercent', 'Доля исполнителя, %'],
+  ['subscriptionDiscountPercent', 'Скидка по подписке, %'],
+  ['referralNewClientDiscount', 'Скидка приглашённому на 1-й заказ'],
+  ['referralBonus', 'Бонус пригласившему'],
+  ['maxBags', 'Максимум мешков в заказе'],
+];
 
-function SettingsForm({ settings, onSaved }: any) {
-  const [s, setS] = useState<any>(settings);
-  useEffect(() => setS(settings), [settings]);
+function SettingsForm({ onSaved }: any) {
+  const [s, setS] = useState<any>(null);
+  useEffect(() => {
+    api('/api/settings').then(setS);
+  }, []);
+  if (!s) return <Spinner />;
+  const setZone = (i: number, k: string, v: any) => setS({ ...s, zones: s.zones.map((z: any, j: number) => (j === i ? { ...z, [k]: v } : z)) });
+  const setPromo = (i: number, k: string, v: any) => setS({ ...s, promos: s.promos.map((p: any, j: number) => (j === i ? { ...p, [k]: v } : p)) });
+  async function save() {
+    try {
+      const r = await api('/api/settings', { method: 'PUT', body: s });
+      setS(r);
+      toast('Настройки сохранены');
+      onSaved();
+    } catch (e: any) {
+      toast(e.message);
+    }
+  }
   return (
-    <div className="card stack" style={{ maxWidth: 560 }}>
-      <h2>Тарифы и настройки</h2>
-      {Object.keys(DEFAULT_SETTINGS).map((k) => (
-        <label className="f" key={k}>
-          <span>{SETTING_LABELS[k] || k}</span>
-          <input
-            className="input"
-            inputMode={typeof (DEFAULT_SETTINGS as any)[k] === 'number' ? 'numeric' : 'text'}
-            value={s[k] ?? ''}
-            onChange={(e) => setS({ ...s, [k]: e.target.value })}
-          />
-        </label>
-      ))}
-      <button
-        className="btn"
-        onClick={async () => {
-          try {
-            await api('/api/settings', { method: 'PUT', body: s });
-            toast('Настройки сохранены');
-            onSaved();
-          } catch (e: any) {
-            toast(e.message);
-          }
-        }}
-      >
-        Сохранить
-      </button>
+    <div className="stack" style={{ maxWidth: 760 }}>
+      <div className="card stack">
+        <h2>Общее</h2>
+        <div className="grid2">
+          <label className="f"><span>Город / зона обслуживания</span><input className="input" value={s.serviceArea} onChange={(e) => setS({ ...s, serviceArea: e.target.value })} /></label>
+          <label className="f"><span>Валюта</span><input className="input" value={s.currency} onChange={(e) => setS({ ...s, currency: e.target.value })} /></label>
+        </div>
+        <label className="f"><span>Варианты чаевых (через запятую)</span><input className="input" value={s.tipOptions} onChange={(e) => setS({ ...s, tipOptions: e.target.value })} /></label>
+      </div>
+      <div className="card stack">
+        <h2>Тарифы</h2>
+        <div className="grid2">
+          {NUM_FIELDS.map(([k, l]) => (
+            <label className="f" key={k}><span>{l}</span><input className="input" inputMode="numeric" value={s[k] ?? ''} onChange={(e) => setS({ ...s, [k]: e.target.value })} /></label>
+          ))}
+        </div>
+      </div>
+      <div className="card stack">
+        <div className="row between"><h2 style={{ margin: 0 }}>Районы и доплаты</h2><button className="btn sm ghost" onClick={() => setS({ ...s, zones: [...s.zones, { id: '', name: '', extra: 0 }] })}>+ Район</button></div>
+        {s.zones.map((z: any, i: number) => (
+          <div key={i} className="row">
+            <input className="input grow" placeholder="Название" value={z.name} onChange={(e) => setZone(i, 'name', e.target.value)} />
+            <input className="input" style={{ width: 110 }} inputMode="numeric" placeholder="Доплата" value={z.extra} onChange={(e) => setZone(i, 'extra', e.target.value)} />
+            <button className="btn plain sm" onClick={() => setS({ ...s, zones: s.zones.filter((_: any, j: number) => j !== i) })}>✕</button>
+          </div>
+        ))}
+      </div>
+      <div className="card stack">
+        <div className="row between"><h2 style={{ margin: 0 }}>Промокоды</h2><button className="btn sm ghost" onClick={() => setS({ ...s, promos: [...s.promos, { code: '', type: 'percent', value: 10, maxUses: 100, used: 0, active: true }] })}>+ Промокод</button></div>
+        <div className="table-wrap">
+          <table className="t">
+            <thead><tr><th>Код</th><th>Тип</th><th>Размер</th><th>Лимит</th><th>Использован</th><th>Активен</th><th></th></tr></thead>
+            <tbody>
+              {s.promos.map((p: any, i: number) => (
+                <tr key={i}>
+                  <td><input className="input" style={{ minWidth: 110 }} value={p.code} onChange={(e) => setPromo(i, 'code', e.target.value.toUpperCase())} /></td>
+                  <td>
+                    <select className="input" value={p.type} onChange={(e) => setPromo(i, 'type', e.target.value)}>
+                      <option value="percent">%</option>
+                      <option value="fixed">{s.currency}</option>
+                    </select>
+                  </td>
+                  <td><input className="input" style={{ width: 80 }} value={p.value} onChange={(e) => setPromo(i, 'value', e.target.value)} /></td>
+                  <td><input className="input" style={{ width: 80 }} value={p.maxUses} onChange={(e) => setPromo(i, 'maxUses', e.target.value)} /></td>
+                  <td>{p.used}</td>
+                  <td><input type="checkbox" checked={p.active} onChange={(e) => setPromo(i, 'active', e.target.checked)} /></td>
+                  <td><button className="btn plain sm" onClick={() => setS({ ...s, promos: s.promos.filter((_: any, j: number) => j !== i) })}>✕</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <button className="btn lg" onClick={save}>Сохранить настройки</button>
       <div className="small muted">Статусы заказов: {Object.values(STATUS_LABEL).join(' → ')}</div>
+    </div>
+  );
+}
+
+function LiveMap({ orders, workers, onOpen }: any) {
+  const active = orders.filter((o: any) => !['done', 'cancelled'].includes(o.status) && o.address?.lat);
+  const markers = [
+    ...active.map((o: any) => ({ lat: o.address.lat, lng: o.address.lng, kind: o.status === 'new' ? 'new' : 'order', label: `№${o.num}` })),
+    ...workers.filter((w: any) => w.loc && w.active).map((w: any) => ({ lat: w.loc.lat, lng: w.loc.lng, kind: 'worker', label: w.name.split(' ')[0] })),
+  ];
+  return (
+    <div className="stack">
+      <MapView markers={markers} height={460} />
+      <div className="small muted">🆕 ждут исполнителя · 🗑️ в работе · 🧤 исполнители (последнее известное место)</div>
+      <Orders orders={active} onOpen={onOpen} compact />
+    </div>
+  );
+}
+
+function AdminSubs({ cur }: { cur: string }) {
+  const [subs, setSubs] = useState<any[] | null>(null);
+  const load = () => api('/api/subscriptions').then((d) => setSubs(d.subscriptions));
+  useEffect(() => {
+    load();
+  }, []);
+  if (!subs) return <Spinner />;
+  const active = subs.filter((s) => s.active);
+  const mrr = active.reduce((a, s) => a + (s.perVisit || 0) * s.days.length * 4.3, 0);
+  return (
+    <div className="stack">
+      <div className="stats">
+        <div className="stat"><div className="l">Активных подписок</div><div className="v">{active.length}</div></div>
+        <div className="stat"><div className="l">Выносов в неделю</div><div className="v">{active.reduce((a, s) => a + s.days.length, 0)}</div></div>
+        <div className="stat"><div className="l">Доход в месяц (оценка)</div><div className="v">{money(mrr, cur)}</div></div>
+      </div>
+      <div className="card table-wrap">
+        <table className="t">
+          <thead><tr><th>Клиент</th><th>Услуга</th><th>Дни</th><th>Время</th><th>Адрес</th><th>За вынос</th><th>Оплата</th><th>Статус</th><th></th></tr></thead>
+          <tbody>
+            {subs.map((s) => (
+              <tr key={s.id}>
+                <td><b>{s.clientName}</b><div className="small muted">{s.clientPhone}</div></td>
+                <td>{SERVICES[s.service]?.icon} {s.bags}</td>
+                <td>{s.days.map((d: number) => WEEKDAYS[d]).join(', ')}</td>
+                <td>{s.time}</td>
+                <td>{addrLine(s.address)}</td>
+                <td>{money(s.perVisit, cur)}</td>
+                <td className="small">{PAYMENT_LABEL[s.payment]}</td>
+                <td>{s.active ? <span className="badge green">Активна</span> : <span className="badge gray">Пауза</span>}</td>
+                <td><button className="btn sm ghost" onClick={() => api('/api/subscriptions', { body: { id: s.id, action: 'toggle' } }).then(load)}>{s.active ? 'Пауза' : 'Вкл.'}</button></td>
+              </tr>
+            ))}
+            {subs.length === 0 && <tr><td colSpan={9} className="center muted" style={{ padding: 30 }}>Подписок пока нет</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

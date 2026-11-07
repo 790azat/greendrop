@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import 'leaflet/dist/leaflet.css';
 import './globals.css';
 import { Toaster } from '@/components/ui';
 import SW from '@/components/SW';

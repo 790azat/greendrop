@@ -1,10 +1,20 @@
 import { q, q1 } from '@/lib/db';
 import { err, handler, ok, requireRole } from '@/lib/http';
-import { loadOrder, pushHistory, saveOrder } from '@/lib/orders';
-import { stepsFor } from '@/lib/domain';
+import { loadOrder, onOrderDone, pushHistory, saveOrder } from '@/lib/orders';
+import { STATUS_LABEL, money, stepsFor } from '@/lib/domain';
+import { pushToRole, pushToUser } from '@/lib/push';
 
 type Ctx = { params: Promise<{ id: string }> };
 const MAX_ACTIVE = 3;
+
+const CLIENT_PUSH: Record<string, string> = {
+  accepted: 'Исполнитель принял ваш заказ',
+  on_way: 'Исполнитель выехал к вам',
+  arrived: 'Исполнитель на месте и забирает мусор',
+  picked: 'Мусор забран',
+  dumped: 'Мусор выброшен в контейнер',
+  done: 'Заказ выполнен! Оцените, пожалуйста, работу',
+};
 
 export const POST = handler(async (req: Request, ctx: Ctx) => {
   const s = await requireRole('client', 'worker', 'admin');
@@ -12,6 +22,8 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
   const b = await req.json();
   const o = await loadOrder(id);
   if (!o) return err('Заказ не найден', 404);
+  const notifyClient = (key: string) =>
+    CLIENT_PUSH[key] && pushToUser(o.clientId, { title: `Заказ №${o.num}`, body: CLIENT_PUSH[key], url: '/client', tag: o.id });
 
   switch (b.action) {
     case 'cancel': {
@@ -22,8 +34,11 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
       if (['done', 'cancelled'].includes(o.status)) return err('Заказ уже закрыт');
       o.status = 'cancelled';
       o.cancelReason = String(b.reason || '').slice(0, 200);
+      if (o.paymentStatus === 'paid' && o.payment === 'online') o.paymentStatus = 'refunded';
       pushHistory(o, 'Заказ отменён' + (o.cancelReason ? `: ${o.cancelReason}` : ''), s.name);
       await saveOrder(o);
+      if (s.role === 'admin') await pushToUser(o.clientId, { title: `Заказ №${o.num}`, body: 'Заказ отменён', url: '/client' });
+      if (o.workerId) await pushToUser(o.workerId, { title: `Заказ №${o.num}`, body: 'Заказ отменён', url: '/worker' });
       return ok({ order: o });
     }
     case 'accept': {
@@ -45,6 +60,7 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
       fresh.steps = { accepted: { at: new Date().toISOString() } };
       pushHistory(fresh, 'Исполнитель принял заказ', w?.name);
       await saveOrder(fresh);
+      await notifyClient('accepted');
       return ok({ order: fresh });
     }
     case 'release': {
@@ -57,6 +73,7 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
       o.steps = {};
       pushHistory(o, 'Исполнитель отказался, заказ снова в поиске', s.name);
       await saveOrder(o);
+      await pushToRole('worker', { title: 'Заказ снова свободен', body: `${o.address?.street}, ${o.address?.house}`, url: '/worker' });
       return ok({ order: o });
     }
     case 'step': {
@@ -70,10 +87,42 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
       if (o.steps?.[b.key]) return err('Этот шаг уже отмечен');
       const def = steps[idx];
       if (def.photo && !b.photo) return err('Для этого шага нужно фото');
-      o.steps = { ...(o.steps || {}), [def.key]: { at: new Date().toISOString(), photo: b.photo || undefined, note: b.note ? String(b.note).slice(0, 300) : undefined } };
+      o.steps = {
+        ...(o.steps || {}),
+        [def.key]: { at: new Date().toISOString(), photo: b.photo || undefined, note: b.note ? String(b.note).slice(0, 300) : undefined },
+      };
       o.status = def.key;
-      if (def.key === 'done') o.completedAt = new Date().toISOString();
+      if (def.key === 'paid') o.paymentStatus = 'paid';
+      if (def.key === 'done') {
+        o.completedAt = new Date().toISOString();
+        await onOrderDone(o);
+      }
       pushHistory(o, def.title, s.name);
+      await saveOrder(o);
+      await notifyClient(def.key);
+      return ok({ order: o });
+    }
+    case 'pay': {
+      // Demo online payment. Real payments need a merchant contract (Idram / ArCa / Telcell)
+      if (s.role !== 'client' || o.clientId !== s.uid) return err('Нет доступа', 403);
+      if (o.status === 'cancelled') return err('Заказ отменён');
+      const amount = Math.max(0, Number(b.amount) || 0);
+      const provider = ['idram', 'arca', 'telcell'].includes(b.provider) ? b.provider : 'arca';
+      if (b.purpose === 'tip') {
+        if (o.status !== 'done') return err('Чаевые можно оставить после выполнения');
+        if (amount <= 0 || amount > 100000) return err('Неверная сумма');
+        o.tip = (o.tip || 0) + amount;
+        pushHistory(o, `Чаевые ${money(amount, o.currency)} (${provider})`, s.name);
+        await saveOrder(o);
+        await pushToUser(o.workerId, { title: 'Вам оставили чаевые 🎉', body: `${money(amount, o.currency)} за заказ №${o.num}`, url: '/worker' });
+        return ok({ order: o });
+      }
+      if (o.paymentStatus === 'paid') return err('Заказ уже оплачен');
+      o.payment = 'online';
+      o.paymentStatus = 'paid';
+      o.paidAt = new Date().toISOString();
+      o.paymentProvider = provider;
+      pushHistory(o, `Оплачено онлайн ${money(o.price, o.currency)} (${provider}, демо)`, s.name);
       await saveOrder(o);
       return ok({ order: o });
     }
@@ -105,9 +154,11 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
         o.status = 'accepted';
         o.steps = { accepted: { at: new Date().toISOString() } };
         pushHistory(o, `Администратор назначил исполнителя: ${w.name}`, s.name);
+        await pushToUser(w.id, { title: 'Вам назначен заказ', body: `${o.address?.street}, ${o.address?.house}`, url: '/worker' });
       }
       await saveOrder(o);
-      return ok({ order: o });
+      if (b.workerId) await notifyClient('accepted');
+      return ok({ order: o, status: STATUS_LABEL[o.status] });
     }
     default:
       return err('Неизвестное действие');

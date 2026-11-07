@@ -1,6 +1,6 @@
 'use client';
 import { Badge, Photo, addrLine, fmtDate, fmtWhen, Icon } from './ui';
-import { SIZE_LABEL, money, stepsFor } from '@/lib/domain';
+import { PAYMENT_LABEL, SERVICES, SIZE_LABEL, money, stepsFor } from '@/lib/domain';
 
 export function OrderSummary({ o, showContacts = true }: { o: any; showContacts?: boolean }) {
   return (
@@ -12,15 +12,34 @@ export function OrderSummary({ o, showContacts = true }: { o: any; showContacts?
       </dd>
       <dt>Когда</dt>
       <dd>{fmtWhen(o.when)}{o.express ? ' · срочно' : ''}</dd>
-      <dt>Мешки</dt>
+      <dt>Услуга</dt>
       <dd>
-        {o.bags} шт · {SIZE_LABEL[o.size] || o.size}
-        {o.bulky ? ' · + крупногабарит' : ''}
+        {SERVICES[o.service || 'trash']?.icon} {SERVICES[o.service || 'trash']?.title}
+        {o.subscriptionId ? ' · по подписке' : ''}
+      </dd>
+      <dt>Объём</dt>
+      <dd>
+        {o.bags} {SERVICES[o.service || 'trash']?.unit}
+        {(o.service || 'trash') === 'trash' ? ` · ${SIZE_LABEL[o.size] || o.size}` : ''}
+        {o.bulky ? ' · + крупный предмет' : ''}
+      </dd>
+      <dt>Сумма</dt>
+      <dd>
+        {money(o.price, o.currency)}
+        {o.subtotal > o.price && <span className="muted" style={{ textDecoration: 'line-through', marginLeft: 6, fontWeight: 400 }}>{money(o.subtotal, o.currency)}</span>}
+        {o.discounts?.length ? <div className="small muted" style={{ fontWeight: 400 }}>{o.discounts.map((d: any) => `${d.label}: −${money(d.amount, o.currency)}`).join(' · ')}</div> : null}
       </dd>
       <dt>Оплата</dt>
       <dd>
-        {money(o.price, o.currency)} · {o.payment === 'card' ? 'переводом / картой' : 'наличными'}
+        {PAYMENT_LABEL[o.payment] || o.payment} ·{' '}
+        {o.paymentStatus === 'paid' ? <span style={{ color: 'var(--g600)' }}>оплачено</span> : o.paymentStatus === 'refunded' ? 'возврат' : <span style={{ color: 'var(--amber)' }}>не оплачено</span>}
       </dd>
+      {o.tip ? (
+        <>
+          <dt>Чаевые</dt>
+          <dd>{money(o.tip, o.currency)}</dd>
+        </>
+      ) : null}
       {o.comment && (
         <>
           <dt>Комментарий</dt>
@@ -111,7 +130,7 @@ export function OrderHead({ o }: { o: any }) {
     <div className="row between" style={{ alignItems: 'flex-start' }}>
       <div className="grow">
         <div className="small muted">Заказ №{o.num} · {fmtDate(o.createdAt)}</div>
-        <div style={{ fontWeight: 700, marginTop: 2 }}>{addrLine(o.address)}</div>
+        <div style={{ fontWeight: 700, marginTop: 2 }}>{SERVICES[o.service || 'trash']?.icon} {addrLine(o.address)}</div>
       </div>
       <Badge status={o.status} />
     </div>

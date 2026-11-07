@@ -1,18 +1,48 @@
 'use client';
+import dynamic from 'next/dynamic';
 import { useEffect, useRef, useState } from 'react';
+import { PushToggle } from '@/components/Push';
 import { Brand } from '@/components/Logo';
 import { OrderHead, OrderSummary, Timeline } from '@/components/OrderDetails';
 import {
   Icon, Modal, Photo, PhotoButton, Spinner, TabBar, api, fmtDate, fmtWhen, logout, mapsLink, toast, useMe, usePoll, addrLine,
 } from '@/components/ui';
-import { SIZE_LABEL, money, stepsFor } from '@/lib/domain';
+import { SERVICES, SIZE_LABEL, money, stepsFor } from '@/lib/domain';
+
+const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
+
+/** Shares the worker's position while the app is open (every ~30 s) */
+function useShareLocation(enabled: boolean) {
+  const [state, setState] = useState<'off' | 'on' | 'denied'>('off');
+  useEffect(() => {
+    if (!enabled || !navigator.geolocation) return;
+    let last = 0;
+    const id = navigator.geolocation.watchPosition(
+      (p) => {
+        setState('on');
+        if (Date.now() - last < 30000) return;
+        last = Date.now();
+        api('/api/location', { body: { lat: p.coords.latitude, lng: p.coords.longitude } }).catch(() => {});
+      },
+      () => setState('denied'),
+      { enableHighAccuracy: true, maximumAge: 15000 }
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, [enabled]);
+  return state;
+}
 
 const ACTIVE = (s: string) => !['done', 'cancelled'].includes(s);
 
 export default function WorkerPage() {
   const { me } = useMe();
   const [tab, setTab] = useState('available');
-  const [data, setData] = useState<{ available: any[]; mine: any[] } | null>(null);
+  const [data, setData] = useState<{ available: any[]; mine: any[]; loc?: any } | null>(null);
+  const [geo, setGeo] = useState(false);
+  const locState = useShareLocation(geo);
+  useEffect(() => {
+    try { if (localStorage.getItem('gd_geo') === '1') setGeo(true); } catch {}
+  }, []);
   const [historyOpen, setHistoryOpen] = useState<any>(null);
   const prevAvail = useRef<number | null>(null);
 
@@ -53,7 +83,7 @@ export default function WorkerPage() {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfWeek = startOfDay - ((now.getDay() + 6) % 7) * 86400000;
-  const sum = (arr: any[]) => arr.reduce((s, o) => s + (o.workerShare || 0), 0);
+  const sum = (arr: any[]) => arr.reduce((s, o) => s + (o.workerShare || 0) + (o.tip || 0), 0);
   const ts = (o: any) => new Date(o.completedAt || o.updatedAt).getTime();
   const cur = me.settings.currency;
 
@@ -63,11 +93,31 @@ export default function WorkerPage() {
         <Brand />
         <span className="small muted">Исполнитель · {me.user.name}</span>
       </div>
-      {me.demoDb && <div className="banner">Демо-режим: база данных ещё не подключена.</div>}
+      {me.user.demo && <div className="banner">Вы в демо-аккаунте исполнителя. Возьмите заказ и пройдите чек-лист.</div>}
 
       {tab === 'available' && (
         <>
           <h1>Доступные заказы</h1>
+          {!geo ? (
+            <button className="btn ghost block sm" style={{ marginBottom: 12 }} onClick={() => { setGeo(true); try { localStorage.setItem('gd_geo', '1'); } catch {} }}>
+              📍 Включить геолокацию: ближние заказы сверху, клиент видит вас на карте
+            </button>
+          ) : (
+            <div className="small muted" style={{ marginBottom: 12 }}>
+              {locState === 'denied' ? '⚠️ Доступ к геолокации запрещён в настройках браузера' : '📍 Геолокация включена'}
+            </div>
+          )}
+          {data && data.available.some((o) => o.address?.lat) && (
+            <div style={{ marginBottom: 12 }}>
+              <MapView
+                height={180}
+                markers={[
+                  ...data.available.filter((o) => o.address?.lat).map((o) => ({ lat: o.address.lat, lng: o.address.lng, kind: 'new' as const, label: money(o.workerShare, o.currency) })),
+                  ...(data.loc ? [{ lat: data.loc.lat, lng: data.loc.lng, kind: 'worker' as const, label: 'Вы' }] : []),
+                ]}
+              />
+            </div>
+          )}
           {data === null ? (
             <Spinner />
           ) : data.available.length === 0 ? (
@@ -81,8 +131,11 @@ export default function WorkerPage() {
                 <div className="row between" style={{ alignItems: 'flex-start' }}>
                   <div className="grow">
                     <div className="small muted">№{o.num} · {fmtDate(o.createdAt)}</div>
-                    <div style={{ fontWeight: 700 }}>{addrLine(o.address, false)}</div>
-                    <div className="small muted">{o.address?.city}</div>
+                    <div style={{ fontWeight: 700 }}>{SERVICES[o.service || 'trash'].icon} {addrLine(o.address, false)}</div>
+                    <div className="small muted">
+                      {o.address?.city}
+                      {o.distanceKm != null && ` · ${o.distanceKm < 1 ? Math.round(o.distanceKm * 1000) + ' м' : o.distanceKm.toFixed(1) + ' км'} от вас`}
+                    </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="price">{money(o.workerShare, o.currency)}</div>
@@ -90,8 +143,9 @@ export default function WorkerPage() {
                   </div>
                 </div>
                 <div className="row wrap small">
-                  <span className="chip">{o.bags} меш.</span>
-                  <span className="chip">{SIZE_LABEL[o.size]}</span>
+                  <span className="chip">{SERVICES[o.service || 'trash'].title}</span>
+                  <span className="chip">{o.bags} {SERVICES[o.service || 'trash'].unit}</span>
+                  {(o.service || 'trash') === 'trash' && <span className="chip">{SIZE_LABEL[o.size]}</span>}
                   {o.bulky && <span className="chip">крупногабарит</span>}
                   <span className={`chip ${o.express ? 'on' : ''}`}>{fmtWhen(o.when)}{o.express ? ' · срочно' : ''}</span>
                 </div>
@@ -133,7 +187,10 @@ export default function WorkerPage() {
             <div className="stat"><div className="l">Неделя</div><div className="v">{money(sum(done.filter((o) => ts(o) >= startOfWeek)), cur)}</div></div>
             <div className="stat"><div className="l">Всего</div><div className="v">{money(sum(done), cur)}</div></div>
             <div className="stat"><div className="l">Заказов</div><div className="v">{done.length}</div></div>
+            <div className="stat"><div className="l">Из них чаевые</div><div className="v">{money(done.reduce((a, o) => a + (o.tip || 0), 0), cur)}</div></div>
+            <div className="stat"><div className="l">Рейтинг</div><div className="v">{(() => { const r = done.filter((o) => o.rating); return r.length ? (r.reduce((a, o) => a + o.rating, 0) / r.length).toFixed(1) + ' ★' : '—'; })()}</div></div>
           </div>
+          <div style={{ marginTop: 12 }}><PushToggle vapidKey={me.vapidPublicKey} /></div>
           <h2 style={{ marginTop: 20 }}>История</h2>
           {done.length === 0 && <div className="empty">Здесь будут выполненные заказы</div>}
           {done.map((o) => (
@@ -144,7 +201,7 @@ export default function WorkerPage() {
                   <div style={{ fontWeight: 650 }}>{addrLine(o.address)}</div>
                   {o.rating && <div className="small" style={{ color: '#f59e0b' }}>{'★'.repeat(o.rating)}</div>}
                 </div>
-                <b>+{money(o.workerShare, o.currency)}</b>
+                <b>+{money(o.workerShare + (o.tip || 0), o.currency)}</b>
               </div>
             </div>
           ))}
@@ -196,6 +253,12 @@ function ActiveOrder({ o, onChange }: { o: any; onChange: () => void }) {
     <div className="card stack">
       <OrderHead o={o} />
       <OrderSummary o={o} />
+      {o.address?.lat && <MapView height={170} markers={[{ lat: o.address.lat, lng: o.address.lng, kind: 'home', label: `кв. ${o.address.apt}` }]} />}
+      {o.payment === 'online' && (
+        <div className={o.paymentStatus === 'paid' ? 'note small' : 'banner'} style={{ margin: 0 }}>
+          {o.paymentStatus === 'paid' ? '✅ Клиент оплатил онлайн, деньги брать не нужно' : '⏳ Клиент ещё не оплатил онлайн'}
+        </div>
+      )}
       <div className="row">
         <a className="btn ghost sm grow" href={`tel:${o.clientPhone}`}>📞 Позвонить</a>
         <a className="btn ghost sm grow" href={mapsLink(o.address)} target="_blank" rel="noreferrer">🗺️ Маршрут</a>
