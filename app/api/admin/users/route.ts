@@ -1,6 +1,7 @@
 import { q, q1 } from '@/lib/db';
 import { hashPin, newId, normPhone } from '@/lib/auth';
 import { err, handler, ok, requireRole } from '@/lib/http';
+import { credit } from '@/lib/wallet';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,8 @@ export const GET = handler(async () => {
     `SELECT client_id, COUNT(*)::int AS orders, COALESCE(SUM((data->>'price')::numeric),0)::float AS spent
      FROM orders WHERE status<>'cancelled' GROUP BY client_id`
   );
+  const bal = await q<any>(`SELECT user_id, COALESCE(SUM(amount),0)::int AS b FROM wallet_tx GROUP BY user_id`);
+  const bm = Object.fromEntries(bal.map((x) => [x.user_id, Number(x.b)]));
   const sm = Object.fromEntries(stats.map((x) => [x.worker_id, x]));
   const cm = Object.fromEntries(byClient.map((x) => [x.client_id, x]));
   return ok({
@@ -36,6 +39,7 @@ export const GET = handler(async () => {
       referralCode: u.data?.referralCode,
       referredBy: u.data?.referredBy,
       spent: cm[u.id]?.spent || 0,
+      balance: bm[u.id] || 0,
     })),
   });
 });
@@ -66,6 +70,12 @@ export const POST = handler(async (req: Request) => {
   }
   if (b.action === 'bonus') {
     await q(`UPDATE users SET data=$2 WHERE id=$1`, [u.id, JSON.stringify({ ...u.data, bonus: Math.max(0, Number(b.bonus) || 0) })]);
+    return ok();
+  }
+  if (b.action === 'balance') {
+    const amount = Math.round(Number(b.amount) || 0);
+    if (!amount || Math.abs(amount) > 1000000) return err('Неверная сумма');
+    await credit(u.id, amount, 'admin', String(b.note || '').slice(0, 120) || 'Корректировка администратором');
     return ok();
   }
   if (b.action === 'resetPin') {

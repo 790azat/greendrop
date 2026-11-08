@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
+import { t } from './i18n';
 
 export type Marker = { lat: number; lng: number; label?: string; kind?: 'home' | 'worker' | 'order' | 'new' };
 
@@ -68,7 +69,7 @@ export default function MapView({
       pts.push([m.lat, m.lng]);
     }
     if (pick) {
-      L.current.marker([pick.lat, pick.lng], { icon: icon('home', 'Здесь') }).addTo(layer.current);
+      L.current.marker([pick.lat, pick.lng], { icon: icon('home', t('Здесь')) }).addTo(layer.current);
       pts.push([pick.lat, pick.lng]);
     }
     if (pts.length > 1) map.current.fitBounds(pts, { padding: [40, 40], maxZoom: 16 });

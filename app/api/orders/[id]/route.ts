@@ -3,6 +3,7 @@ import { err, handler, ok, requireRole } from '@/lib/http';
 import { loadOrder, onOrderDone, pushHistory, saveOrder } from '@/lib/orders';
 import { STATUS_LABEL, money, stepsFor } from '@/lib/domain';
 import { pushToRole, pushToUser } from '@/lib/push';
+import { charge, credit } from '@/lib/wallet';
 
 type Ctx = { params: Promise<{ id: string }> };
 const MAX_ACTIVE = 3;
@@ -34,7 +35,11 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
       if (['done', 'cancelled'].includes(o.status)) return err('Заказ уже закрыт');
       o.status = 'cancelled';
       o.cancelReason = String(b.reason || '').slice(0, 200);
-      if (o.paymentStatus === 'paid' && o.payment === 'online') o.paymentStatus = 'refunded';
+      if (o.paymentStatus === 'paid' && o.payment === 'wallet' && o.price > 0) {
+        await credit(o.clientId, o.price, 'refund', `Возврат за заказ №${o.num}`, o.id);
+        o.paymentStatus = 'refunded';
+        pushHistory(o, `Возврат ${money(o.price, o.currency)} на баланс`, 'GreenDrop');
+      } else if (o.paymentStatus === 'paid' && o.payment === 'online') o.paymentStatus = 'refunded';
       pushHistory(o, 'Заказ отменён' + (o.cancelReason ? `: ${o.cancelReason}` : ''), s.name);
       await saveOrder(o);
       if (s.role === 'admin') await pushToUser(o.clientId, { title: `Заказ №${o.num}`, body: 'Заказ отменён', url: '/client' });
@@ -107,10 +112,12 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
       if (s.role !== 'client' || o.clientId !== s.uid) return err('Нет доступа', 403);
       if (o.status === 'cancelled') return err('Заказ отменён');
       const amount = Math.max(0, Number(b.amount) || 0);
-      const provider = ['idram', 'arca', 'telcell'].includes(b.provider) ? b.provider : 'arca';
+      const provider = ['idram', 'arca', 'telcell', 'wallet'].includes(b.provider) ? b.provider : 'arca';
+      const fromWallet = provider === 'wallet';
       if (b.purpose === 'tip') {
         if (o.status !== 'done') return err('Чаевые можно оставить после выполнения');
         if (amount <= 0 || amount > 100000) return err('Неверная сумма');
+        if (fromWallet && !(await charge(s.uid, amount, 'tip', `Чаевые за заказ №${o.num}`, o.id))) return err('Недостаточно средств на балансе');
         o.tip = (o.tip || 0) + amount;
         pushHistory(o, `Чаевые ${money(amount, o.currency)} (${provider})`, s.name);
         await saveOrder(o);
@@ -118,11 +125,12 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
         return ok({ order: o });
       }
       if (o.paymentStatus === 'paid') return err('Заказ уже оплачен');
-      o.payment = 'online';
+      if (fromWallet && !(await charge(s.uid, o.price, 'order', `Оплата заказа №${o.num}`, o.id))) return err('Недостаточно средств на балансе');
+      o.payment = fromWallet ? 'wallet' : 'online';
       o.paymentStatus = 'paid';
       o.paidAt = new Date().toISOString();
       o.paymentProvider = provider;
-      pushHistory(o, `Оплачено онлайн ${money(o.price, o.currency)} (${provider}, демо)`, s.name);
+      pushHistory(o, fromWallet ? `Оплачено с баланса ${money(o.price, o.currency)}` : `Оплачено онлайн ${money(o.price, o.currency)} (${provider}, демо)`, s.name);
       await saveOrder(o);
       return ok({ order: o });
     }
