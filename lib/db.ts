@@ -6,7 +6,7 @@ export const isDemoDb = !DB_URL;
 let pglite: any = null;
 let initPromise: Promise<void> | null = null;
 
-const TABLES = ['users', 'orders', 'settings', 'photos', 'subscriptions', 'push_subs', 'otp_codes'];
+const TABLES = ['users', 'orders', 'settings', 'photos', 'subscriptions', 'push_subs', 'otp_codes', 'wallet_tx'];
 
 async function raw(text: string, params: any[] = []): Promise<any[]> {
   if (DB_URL) {
@@ -75,6 +75,16 @@ const SCHEMA = [
     tries INT NOT NULL DEFAULT 0,
     expires_at TIMESTAMPTZ NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS wallet_tx (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    note TEXT,
+    order_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS wallet_tx_user_idx ON wallet_tx(user_id)`,
 ];
 
 /* ---------- Demo persistence (no DATABASE_URL) ----------
@@ -176,12 +186,14 @@ async function init() {
     initPromise = (async () => {
       for (const s of SCHEMA) await raw(s);
       if (!DB_URL) await loadSnapshot();
-      const { seedIfEmpty } = await import('./seed');
-      await seedIfEmpty(async (text: string, params: any[] = []) => {
+      const { seedIfEmpty, seedDemoWallet } = await import('./seed');
+      const rq = async (text: string, params: any[] = []) => {
         const rows = await raw(text, params);
         if (!DB_URL && !/^\s*select/i.test(text)) scheduleSave();
         return rows;
-      });
+      };
+      await seedIfEmpty(rq);
+      await seedDemoWallet(rq);
     })().catch((e) => {
       initPromise = null;
       throw e;

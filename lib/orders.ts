@@ -2,6 +2,8 @@ import { q, q1 } from './db';
 import { newId } from './auth';
 import { DEFAULT_SETTINGS, Settings, localDay, quote, SERVICES } from './domain';
 import { pushToRole } from './push';
+import { charge } from './wallet';
+import { tr } from './i18n';
 
 export async function getSettings(): Promise<Settings> {
   const row = await q1<any>(`SELECT value FROM settings WHERE key='main'`);
@@ -91,7 +93,7 @@ export async function createOrder(
   const bulky = service === 'trash' && !!b.bulky;
   const express = (b.when === 'asap' || !b.when) && !!b.express;
   const when = b.when === 'asap' || !b.when ? 'asap' : str(b.when, 40);
-  const payment = ['cash', 'card', 'online'].includes(b.payment) ? b.payment : 'cash';
+  const payment = ['cash', 'card', 'online', 'wallet'].includes(b.payment) ? b.payment : 'cash';
 
   const prevOrders = await q1<any>(`SELECT COUNT(*)::int AS n FROM orders WHERE client_id=$1 AND status<>'cancelled'`, [clientId]);
   const referralFirstOrder = !!user.data?.referredBy && (prevOrders?.n || 0) === 0;
@@ -130,7 +132,25 @@ export async function createOrder(
     steps: {},
     history: [{ at: new Date().toISOString(), text: opts.subscriptionId ? 'Заказ создан по подписке' : 'Заказ создан', by: user.name }],
   };
-  await q(`INSERT INTO orders (id, client_id, status, data) VALUES ($1,$2,'new',$3)`, [id, clientId, JSON.stringify(data)]);
+  if (payment === 'wallet' && qt.total > 0) {
+    (data as any).paymentStatus = 'paid';
+    (data as any).paidAt = new Date().toISOString();
+  }
+  const ins = await q<any>(`INSERT INTO orders (id, client_id, status, data) VALUES ($1,$2,'new',$3) RETURNING num`, [id, clientId, JSON.stringify(data)]);
+  if (payment === 'wallet' && qt.total > 0) {
+    const num = ins[0]?.num;
+    const okPaid = await charge(clientId, qt.total, 'order', `Оплата заказа №${num}`, id);
+    if (!okPaid) {
+      if (!opts.subscriptionId) {
+        await q(`DELETE FROM orders WHERE id=$1`, [id]);
+        throw new Error('Недостаточно средств на балансе. Пополните кошелёк или выберите другой способ оплаты');
+      }
+      // subscription: keep the order, the client pays online later
+      const d = { ...data, payment: 'online', paymentStatus: 'pending', paidAt: undefined };
+      d.history = [...d.history, { at: new Date().toISOString(), text: 'Недостаточно средств на балансе, оплатите заказ онлайн', by: 'GreenDrop' }];
+      await q(`UPDATE orders SET data=$2 WHERE id=$1`, [id, JSON.stringify(d)]);
+    }
+  }
 
   // bookkeeping: promo usage, bonus, saved addresses
   if (promo) {
@@ -146,7 +166,7 @@ export async function createOrder(
 
   await pushToRole('worker', {
     title: 'Новый заказ',
-    body: `${SERVICES[service].title}: ${address.street}, ${address.house} · ${bags} ${SERVICES[service].unit}`,
+    body: (l) => `${tr(l, SERVICES[service].title)}: ${address.street}, ${address.house} · ${bags} ${tr(l, SERVICES[service].unit)}`,
     url: '/worker',
     tag: 'new-order',
   });

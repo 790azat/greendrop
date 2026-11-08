@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css';
 import './globals.css';
 import { Toaster } from '@/components/ui';
 import SW from '@/components/SW';
+import { Splash } from '@/components/Logo';
 
 export const metadata: Metadata = {
   title: 'GreenDrop — вынос мусора',
@@ -34,8 +35,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru">
+    <html lang="ru" suppressHydrationWarning>
       <body>
+        <Splash />
         {children}
         <Toaster />
         <SW />

@@ -39,7 +39,7 @@ export const POST = handler(async (req: Request) => {
   const service = SERVICES[b.service] ? b.service : 'trash';
   const bags = Math.max(1, Math.min(Number(b.bags) || 1, settings.maxBags));
   const size = ['small', 'medium', 'large'].includes(b.size) ? b.size : 'medium';
-  const payment = ['cash', 'card', 'online'].includes(b.payment) ? b.payment : 'online';
+  const payment = ['cash', 'card', 'online', 'wallet'].includes(b.payment) ? b.payment : 'online';
   const perVisit = quote(settings, { service, bags, size, zoneId: address.zoneId }, { subscription: true }).total;
   const id = newId('s_');
   await q(`INSERT INTO subscriptions (id, client_id, active, data) VALUES ($1,$2,TRUE,$3)`, [

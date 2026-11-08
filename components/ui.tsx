@@ -1,6 +1,8 @@
 'use client';
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { STATUS_COLOR, STATUS_LABEL } from '@/lib/domain';
+import { locale, t, useLang } from './i18n';
+export { t } from './i18n';
 
 export async function api<T = any>(url: string, opts: { method?: string; body?: any } = {}): Promise<T> {
   const res = await fetch(url, {
@@ -11,7 +13,7 @@ export async function api<T = any>(url: string, opts: { method?: string; body?: 
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const e: any = new Error(data.error || `Ошибка ${res.status}`);
+    const e: any = new Error(data.error ? t(data.error) : t('Ошибка {n}', { n: res.status }));
     e.status = res.status;
     throw e;
   }
@@ -54,6 +56,7 @@ export function toast(s: string) {
   toastSet?.(s);
 }
 export function Toaster() {
+  useLang();
   const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => {
     toastSet = setMsg;
@@ -70,7 +73,7 @@ export function Toaster() {
 }
 
 export function Badge({ status }: { status: string }) {
-  return <span className={`badge ${STATUS_COLOR[status] || 'gray'}`}>{STATUS_LABEL[status] || status}</span>;
+  return <span className={`badge ${STATUS_COLOR[status] || 'gray'}`}>{t(STATUS_LABEL[status] || status)}</span>;
 }
 
 export function Modal({ title, onClose, children }: { title: ReactNode; onClose: () => void; children: ReactNode }) {
@@ -86,7 +89,7 @@ export function Modal({ title, onClose, children }: { title: ReactNode; onClose:
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
           <h2 style={{ margin: 0 }}>{title}</h2>
-          <button className="btn plain" onClick={onClose} aria-label="Закрыть">
+          <button className="btn plain" onClick={onClose} aria-label={t('Закрыть')}>
             ✕
           </button>
         </div>
@@ -132,7 +135,7 @@ export async function uploadPhoto(file: File): Promise<string> {
   fd.append('file', blob, 'photo.jpg');
   const res = await fetch('/api/upload', { method: 'POST', body: fd });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Не удалось загрузить фото');
+  if (!res.ok) throw new Error(t(data.error || 'Не удалось загрузить фото'));
   return data.url;
 }
 
@@ -186,7 +189,7 @@ export function PhotoList({ urls, onRemove }: { urls: string[]; onRemove?: (i: n
         <div className="ph-wrap" key={u}>
           <Photo src={u} />
           {onRemove && (
-            <button type="button" className="ph-x" onClick={() => onRemove(i)} aria-label="Удалить">
+            <button type="button" className="ph-x" onClick={() => onRemove(i)} aria-label={t('Удалить')}>
               ×
             </button>
           )}
@@ -201,22 +204,22 @@ export function fmtDate(s?: string) {
   const d = new Date(s);
   const today = new Date();
   const same = d.toDateString() === today.toDateString();
-  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  return same ? `сегодня ${time}` : `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} ${time}`;
+  const time = d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
+  return same ? t('сегодня {time}', { time }) : `${d.toLocaleDateString(locale(), { day: 'numeric', month: 'short' })} ${time}`;
 }
 
 export function fmtWhen(w?: string) {
-  if (!w || w === 'asap') return 'Как можно скорее';
+  if (!w || w === 'asap') return t('Как можно скорее');
   return fmtDate(w);
 }
 
 export function addrLine(a: any = {}, full = true) {
   const parts = [a.street && `${a.street}, ${a.house}`];
   if (full) {
-    if (a.entrance) parts.push(`подъезд ${a.entrance}`);
-    if (a.floor) parts.push(`этаж ${a.floor}`);
-    if (a.apt) parts.push(`кв. ${a.apt}`);
-  } else if (a.floor) parts.push(`этаж ${a.floor}`);
+    if (a.entrance) parts.push(t('подъезд {n}', { n: a.entrance }));
+    if (a.floor) parts.push(t('этаж {n}', { n: a.floor }));
+    if (a.apt) parts.push(t('кв. {n}', { n: a.apt }));
+  } else if (a.floor) parts.push(t('этаж {n}', { n: a.floor }));
   return parts.filter(Boolean).join(', ');
 }
 
@@ -271,11 +274,11 @@ export function TabBar({ tabs, value, onChange }: { tabs: { key: string; label: 
   return (
     <nav className="tabbar">
       <div className="in">
-        {tabs.map((t) => (
-          <button key={t.key} className={value === t.key ? 'on' : ''} onClick={() => onChange(t.key)}>
-            {t.icon}
-            {t.label}
-            {!!t.dot && <span className="dot">{t.dot}</span>}
+        {tabs.map((tb) => (
+          <button key={tb.key} className={value === tb.key ? 'on' : ''} onClick={() => onChange(tb.key)}>
+            {tb.icon}
+            {tb.label}
+            {!!tb.dot && <span className="dot">{tb.dot}</span>}
           </button>
         ))}
       </div>

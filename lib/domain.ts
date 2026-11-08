@@ -5,20 +5,26 @@ export type StepDef = {
   hint?: string;
   photo?: boolean;
   cashOnly?: boolean;
+  /** old step, only shown for orders that already have it */
+  legacy?: boolean;
 };
 
-export const STEPS: StepDef[] = [
+export const ALL_STEPS: StepDef[] = [
   { key: 'accepted', title: 'Заказ принят', hint: 'Вы взяли заказ в работу' },
   { key: 'on_way', title: 'Выехал к клиенту', hint: 'Клиент увидит, что вы в пути' },
-  { key: 'arrived', title: 'На месте, вижу мешки у двери', hint: 'Сфотографируйте мешки у двери до того, как забрать', photo: true },
-  { key: 'picked', title: 'Забрал мешки', hint: 'Фото мешков в руках или в тележке. Проверьте количество', photo: true },
-  { key: 'dumped', title: 'Выбросил в контейнер', hint: 'Фото у мусорного контейнера или на площадке', photo: true },
+  { key: 'arrived', title: 'На месте, вижу мешки у двери', photo: true, legacy: true },
+  { key: 'picked', title: 'Забрал мусор', hint: 'Сфотографируйте, что забрали: мешки у двери, в руках или в тележке', photo: true },
+  { key: 'dumped', title: 'Выбросил в контейнер', photo: true, legacy: true },
   { key: 'paid', title: 'Получил оплату', hint: 'Отметьте, когда клиент оплатил наличными или переводом', cashOnly: true },
   { key: 'done', title: 'Заказ выполнен', hint: 'Финальная отметка, клиент получит уведомление' },
 ];
+export const STEPS = ALL_STEPS.filter((s) => !s.legacy);
 
-export function stepsFor(order: { payment?: string }) {
-  return STEPS.filter((s) => !s.cashOnly || order.payment !== 'online');
+/** Cash / transfer orders need a "payment received" step */
+export const needsCash = (order: { payment?: string }) => order.payment === 'cash' || order.payment === 'card';
+
+export function stepsFor(order: { payment?: string; steps?: Record<string, any> }) {
+  return ALL_STEPS.filter((s) => (!s.legacy || order.steps?.[s.key]) && (!s.cashOnly || needsCash(order)));
 }
 
 export const STATUS_LABEL: Record<string, string> = {
@@ -189,7 +195,10 @@ export const PAYMENT_LABEL: Record<string, string> = {
   cash: 'Наличными исполнителю',
   online: 'Онлайн (Idram / ArCa / Telcell)',
   card: 'Переводом исполнителю',
+  wallet: 'С баланса в приложении',
 };
+export const PAYMENTS = ['wallet', 'online', 'cash', 'card'];
+export const PAID_IN_APP = (p?: string) => p === 'online' || p === 'wallet';
 
 export function money(n: number, cur: string) {
   return `${Math.round(n || 0).toLocaleString('ru-RU')} ${cur}`;

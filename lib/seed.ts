@@ -54,19 +54,19 @@ export async function seedIfEmpty(q: Q) {
         ...base, address: addr, bags: 2, price: 700, subtotal: 700, workerShare: 490, clientPhotos: ['/demo/door.svg'],
         workerName: DEMO.worker.name, workerPhone: DEMO.worker.phone, payment: 'online', paymentStatus: 'paid', paidAt: iso(60 * 26),
         steps: {
-          accepted: { at: iso(60 * 26 - 3) }, on_way: { at: iso(60 * 26 - 4) }, arrived: { at: iso(60 * 26 - 15), photo: '/demo/door.svg' },
-          picked: { at: iso(60 * 26 - 16), photo: '/demo/picked.svg' }, dumped: { at: iso(60 * 26 - 22), photo: '/demo/container.svg' }, done: { at: iso(60 * 26 - 23) },
+          accepted: { at: iso(60 * 26 - 3) }, on_way: { at: iso(60 * 26 - 4) },
+          picked: { at: iso(60 * 26 - 16), photo: '/demo/picked.svg' }, done: { at: iso(60 * 26 - 23) },
         },
         completedAt: iso(60 * 26 - 23), rating: 5, review: 'Очень быстро, спасибо!', tip: 200,
         history: [{ at: iso(60 * 26), text: 'Заказ создан', by: DEMO.client.name }, { at: iso(60 * 26 - 23), text: 'Заказ выполнен', by: DEMO.worker.name }],
       },
     },
     {
-      id: 'o_demo_work', client: DEMO.client.id, worker: DEMO.worker.id, status: 'arrived', created: iso(25),
+      id: 'o_demo_work', client: DEMO.client.id, worker: DEMO.worker.id, status: 'on_way', created: iso(25),
       data: {
         ...base, address: addr, bags: 1, service: 'recycle', price: 300, subtotal: 300, workerShare: 210, clientPhotos: ['/demo/door.svg'],
         workerName: DEMO.worker.name, workerPhone: DEMO.worker.phone,
-        steps: { accepted: { at: iso(22) }, on_way: { at: iso(20) }, arrived: { at: iso(3), photo: '/demo/door.svg' } },
+        steps: { accepted: { at: iso(22) }, on_way: { at: iso(20) } },
         history: [{ at: iso(25), text: 'Заказ создан', by: DEMO.client.name }, { at: iso(22), text: 'Исполнитель принял заказ', by: DEMO.worker.name }],
       },
     },
@@ -96,4 +96,14 @@ export async function seedIfEmpty(q: Q) {
     DEMO.client.id,
     JSON.stringify({ address: addr, days: [0, 2, 4], time: '09:00', bags: 1, size: 'medium', service: 'trash', payment: 'online', perVisit: 425, lastGenerated: null }),
   ]);
+}
+
+/** Demo client starts with money in the wallet (also for databases seeded before wallets existed) */
+export async function seedDemoWallet(q: Q) {
+  if (process.env.DISABLE_DEMO === '1') return;
+  const u = await q(`SELECT id FROM users WHERE id=$1`, [DEMO.client.id]);
+  if (!u.length) return;
+  const tx = await q(`SELECT id FROM wallet_tx WHERE user_id=$1 LIMIT 1`, [DEMO.client.id]);
+  if (tx.length) return;
+  await q(`INSERT INTO wallet_tx (id, user_id, amount, kind, note) VALUES ('t_demo_topup', $1, 5000, 'topup', 'Пополнение (Idram)') ON CONFLICT DO NOTHING`, [DEMO.client.id]);
 }

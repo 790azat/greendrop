@@ -1,5 +1,7 @@
 import { getSession } from '@/lib/auth';
-import { q1, isDemoDb } from '@/lib/db';
+import { q, q1, isDemoDb } from '@/lib/db';
+import { isLang } from '@/lib/i18n';
+import { getBalance } from '@/lib/wallet';
 import { handler, ok } from '@/lib/http';
 import { getSettings } from '@/lib/orders';
 import { VAPID_PUBLIC } from '@/lib/push';
@@ -25,6 +27,8 @@ export const GET = handler(async () => {
         referralCode: u.data?.referralCode,
         referralFirstOrder: !!u.data?.referredBy && (prev?.n || 0) === 0,
         demo: !!u.data?.demo,
+        lang: u.data?.lang || null,
+        balance: u.role === 'client' ? await getBalance(u.id) : 0,
       };
     }
   } else if (s) user = { id: 'admin', role: 'admin', name: s.name };
@@ -38,4 +42,14 @@ export const GET = handler(async () => {
     vapidPublicKey: VAPID_PUBLIC || null,
     smsEnabled,
   });
+});
+
+/** Saves the interface language (used for push notifications) */
+export const POST = handler(async (req: Request) => {
+  const s = await getSession();
+  const b = await req.json().catch(() => ({}));
+  if (s && s.role !== 'admin' && isLang(b.lang)) {
+    await q(`UPDATE users SET data = data || jsonb_build_object('lang', $2::text) WHERE id=$1`, [s.uid, b.lang]);
+  }
+  return ok();
 });
