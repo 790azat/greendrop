@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { LogoMark } from '@/components/Logo';
 import { api, t, useMe } from '@/components/ui';
 import { LangSwitch, useLang } from '@/components/i18n';
+import { I, IconBox } from '@/components/Icons';
+import { Onboarding } from '@/components/Onboarding';
 
 type Mode = 'login' | 'register';
 const go = (role: string) => (location.href = role === 'admin' ? '/admin' : role === 'worker' ? '/worker' : '/client');
@@ -113,44 +115,31 @@ export default function Home() {
     );
   }
 
+  const roles = [
+    { id: 'client' as const, icon: 'home', label: t('Я клиент') },
+    { id: 'worker' as const, icon: 'bag', label: t('Я исполнитель') },
+  ];
+
   return (
     <>
+      <Onboarding kind="client" />
       <header className="hero">
-        <div style={{ marginBottom: 18 }}><LangSwitch /></div>
+        <div className="row between" style={{ maxWidth: 460, margin: '0 auto 18px' }}>
+          <a href="/install" className="iconbtn" aria-label={t('Как установить на телефон')} title={t('Как установить на телефон')}><I n="download" size={20} /></a>
+          <LangSwitch compact />
+        </div>
         <LogoMark size={64} />
-        <h1>GreenDrop</h1>
+        <h1>Green<b>Drop</b></h1>
         <p>{t('Вынесем мусор прямо от вашей двери. Заказ за минуту, фотоотчёт на каждом шаге.')}</p>
       </header>
       <main className="landing">
-        {me?.demoLogin && (
-          <div className="card stack" style={{ marginBottom: 16 }}>
-            <div className="row between">
-              <h3 style={{ margin: 0 }}>{t('Посмотреть демо')}</h3>
-              <span className="badge green">{t('без регистрации')}</span>
-            </div>
-            <div className="grid3">
-              <button className="btn ghost" style={{ flexDirection: 'column', gap: 2, padding: '10px 4px' }} disabled={busy} onClick={() => demo('client')}>
-                <span style={{ fontSize: 22 }}>🏠</span><span className="small">{t('Клиент')}</span>
-              </button>
-              <button className="btn ghost" style={{ flexDirection: 'column', gap: 2, padding: '10px 4px' }} disabled={busy} onClick={() => demo('worker')}>
-                <span style={{ fontSize: 22 }}>🧤</span><span className="small">{t('Исполнитель')}</span>
-              </button>
-              <button className="btn ghost" style={{ flexDirection: 'column', gap: 2, padding: '10px 4px' }} disabled={busy} onClick={() => demo('admin')}>
-                <span style={{ fontSize: 22 }}>📊</span><span className="small">{t('Админ')}</span>
-              </button>
-            </div>
-            <div className="small muted">{t('Откройте клиента и исполнителя в двух вкладках или на двух телефонах и пройдите заказ целиком.')}</div>
-          </div>
-        )}
-
         <div className="card stack">
           <div className="seg">
-            <button className={role === 'client' ? 'on' : ''} onClick={() => setRole('client')}>{t('Я клиент')}</button>
-            <button className={role === 'worker' ? 'on' : ''} onClick={() => setRole('worker')}>{t('Я исполнитель')}</button>
-          </div>
-          <div className="chips">
-            <button className={`chip ${method === 'sms' ? 'on' : ''}`} onClick={() => { setMethod('sms'); setError(''); }}>{t('Вход по SMS')}</button>
-            <button className={`chip ${method === 'pin' ? 'on' : ''}`} onClick={() => { setMethod('pin'); setError(''); }}>{t('По PIN-коду')}</button>
+            {roles.map((r) => (
+              <button key={r.id} className={role === r.id ? 'on' : ''} onClick={() => setRole(r.id)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <I n={r.icon} size={18} />{r.label}
+              </button>
+            ))}
           </div>
 
           {method === 'sms' ? (
@@ -174,19 +163,20 @@ export default function Home() {
                   )}
                 </>
               )}
-              {ref && !codeSent?.exists && role === 'client' && <div className="note small">🎁 {t('Вас пригласили: скидка на первый заказ (код {code})', { code: ref })}</div>}
+              {ref && !codeSent?.exists && role === 'client' && <div className="note small row"><I n="gift" size={18} />{t('Вас пригласили: скидка на первый заказ (код {code})', { code: ref })}</div>}
               {error && <div className="error">{error}</div>}
               {info && <div className="note">{info}</div>}
               <button className="btn block lg" disabled={busy}>
-                {busy ? <span className="spin" /> : codeSent ? t('Войти') : t('Получить код')}
+                {busy ? <span className="spin" /> : codeSent ? t('Войти') : <><I n="sms" size={20} />{t('Получить код')}</>}
               </button>
-              {codeSent && (
+              {codeSent ? (
                 <button type="button" className="btn plain block" onClick={() => { setCodeSent(null); setCode(''); }}>{t('Изменить номер')}</button>
+              ) : (
+                <button type="button" className="btn plain block" onClick={() => { setMethod('pin'); setError(''); }}><I n="key" size={18} />{t('Войти по PIN-коду')}</button>
               )}
             </form>
           ) : (
             <form onSubmit={pinSubmit} className="stack">
-              <h2 style={{ marginTop: 4 }}>{mode === 'register' ? (role === 'worker' ? t('Стать исполнителем') : t('Регистрация')) : t('Вход')}</h2>
               {mode === 'register' && (
                 <label className="f">
                   <span>{t('Имя')}</span>
@@ -215,19 +205,31 @@ export default function Home() {
               <button type="button" className="btn plain block" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>
                 {mode === 'login' ? t('Нет аккаунта? Зарегистрироваться') : t('Уже есть аккаунт? Войти')}
               </button>
+              <button type="button" className="btn plain block" onClick={() => { setMethod('sms'); setError(''); }}><I n="sms" size={18} />{t('Войти по SMS')}</button>
             </form>
           )}
         </div>
 
-        <div className="card stack" style={{ marginTop: 16 }}>
-          <div className="feature"><div className="ic">📸</div><div><b>{t('Фото вместо звонков')}</b><div className="muted small">{t('Сфотографируйте мешки у двери, укажите этаж и квартиру.')}</div></div></div>
-          <div className="feature"><div className="ic">✅</div><div><b>{t('Фотоотчёт исполнителя')}</b><div className="muted small">{t('Исполнитель отмечает этапы и присылает фото того, что забрал.')}</div></div></div>
-          <div className="feature"><div className="ic">👛</div><div><b>{t('Кошелёк в приложении')}</b><div className="muted small">{t('Пополните баланс и оплачивайте вынос в одно касание.')}</div></div></div>
-          <div className="feature"><div className="ic">🔁</div><div><b>{t('Подписка')}</b><div className="muted small">{t('Выносим по расписанию, скидка на каждый вынос.')}</div></div></div>
-          <div className="feature"><div className="ic">♻️</div><div><b>{t('Вторсырьё и крупногабарит')}</b><div className="muted small">{t('Отдельно вывозим переработку, мебель и коробки.')}</div></div></div>
-        </div>
-        <p className="center small muted" style={{ marginTop: 20 }}>
-          <a href="/admin">{t('Вход для администратора')}</a> · <a href="/install">{t('Как установить на телефон')}</a>
+        {me?.demoLogin && (
+          <>
+            <div className="label center">{t('Посмотреть демо')} · {t('без регистрации')}</div>
+            <div className="tiles">
+              {[
+                { r: 'client', icon: 'home', l: t('Клиент') },
+                { r: 'worker', icon: 'bag', l: t('Исполнитель') },
+                { r: 'admin', icon: 'chart', l: t('Админ') },
+              ].map((d) => (
+                <button key={d.r} className="tile" disabled={busy} onClick={() => demo(d.r)}>
+                  <IconBox n={d.icon} size={38} />
+                  {d.l}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        <p className="center small" style={{ marginTop: 24 }}>
+          <a href="/admin" className="muted" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}><I n="shield" size={16} />{t('Вход для администратора')}</a>
         </p>
       </main>
     </>

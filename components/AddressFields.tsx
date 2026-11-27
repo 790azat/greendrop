@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic';
 import { useState } from 'react';
 import { t, toast } from './ui';
 import { getLang } from './i18n';
+import { I } from './Icons';
 import type { Settings } from '@/lib/domain';
 
 const MapView = dynamic(() => import('./MapView'), { ssr: false, loading: () => <div style={{ height: 200 }} /> });
@@ -80,16 +81,16 @@ export function AddressFields({
         <div className="chips">
           {saved.map((a: any, i: number) => (
             <button key={i} type="button" className="chip" onClick={() => { setAddr({ ...a }); setShowMap(!!a.lat); }}>
-              📍 {a.street}, {a.house}, {t('кв. {n}', { n: a.apt })}
+              <I n="pin" size={14} />{a.street}, {a.house}, {t('кв. {n}', { n: a.apt })}
             </button>
           ))}
         </div>
       )}
       <div className="row">
         <button type="button" className="btn ghost sm grow" onClick={locate} disabled={locating}>
-          {locating ? <span className="spin" /> : `📍 ${t('Моё местоположение')}`}
+          {locating ? <span className="spin" /> : <><I n="pin" size={18} />{t('Моё местоположение')}</>}
         </button>
-        <button type="button" className="btn ghost sm grow" onClick={() => setShowMap(!showMap)}>🗺️ {showMap ? t('Скрыть карту') : t('Указать на карте')}</button>
+        <button type="button" className="btn ghost sm grow" onClick={() => setShowMap(!showMap)}><I n="map" size={18} />{showMap ? t('Скрыть карту') : t('Указать на карте')}</button>
       </div>
       {showMap && (
         <>
@@ -97,6 +98,15 @@ export function AddressFields({
           <div className="small muted">{t('Нажмите на карту, чтобы отметить дом. Исполнитель увидит точку и маршрут.')}</div>
         </>
       )}
+      <div className="grid2" style={{ gridTemplateColumns: '2fr 1fr' }}>
+        <label className="f"><span>{t('Улица')}</span><input className="input" value={addr.street} onChange={set('street')} placeholder={t('ул. Абовяна')} /></label>
+        <label className="f"><span>{t('Дом')}</span><input className="input" value={addr.house} onChange={set('house')} placeholder="12" /></label>
+      </div>
+      <div className="grid3">
+        <label className="f"><span>{t('Подъезд')}</span><input className="input" inputMode="numeric" value={addr.entrance} onChange={set('entrance')} /></label>
+        <label className="f"><span>{t('Этаж')}</span><input className="input" inputMode="numeric" value={addr.floor} onChange={set('floor')} /></label>
+        <label className="f"><span>{t('Квартира')}</span><input className="input" value={addr.apt} onChange={set('apt')} /></label>
+      </div>
       <div className="grid2">
         <label className="f"><span>{t('Город')}</span><input className="input" value={addr.city} onChange={set('city')} /></label>
         <label className="f">
@@ -108,15 +118,6 @@ export function AddressFields({
             ))}
           </select>
         </label>
-      </div>
-      <div className="grid2" style={{ gridTemplateColumns: '2fr 1fr' }}>
-        <label className="f"><span>{t('Улица')}</span><input className="input" value={addr.street} onChange={set('street')} placeholder={t('ул. Абовяна')} /></label>
-        <label className="f"><span>{t('Дом')}</span><input className="input" value={addr.house} onChange={set('house')} placeholder="12" /></label>
-      </div>
-      <div className="grid3">
-        <label className="f"><span>{t('Подъезд')}</span><input className="input" inputMode="numeric" value={addr.entrance} onChange={set('entrance')} /></label>
-        <label className="f"><span>{t('Этаж')}</span><input className="input" inputMode="numeric" value={addr.floor} onChange={set('floor')} /></label>
-        <label className="f"><span>{t('Квартира')}</span><input className="input" value={addr.apt} onChange={set('apt')} /></label>
       </div>
       <label className="f"><span>{t('Код домофона')}</span><input className="input" value={addr.intercom} onChange={set('intercom')} placeholder={t('необязательно')} /></label>
     </div>

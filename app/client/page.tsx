@@ -7,38 +7,43 @@ import { AddressFields, emptyAddress } from '@/components/AddressFields';
 import { PayModal } from '@/components/Pay';
 import { PushToggle } from '@/components/Push';
 import {
-  Icon, Modal, PhotoButton, PhotoList, Progress, Spinner, TabBar, api, fmtDate, logout, t, toast, useMe, usePoll,
+  Disclosure, Icon, MenuRow, Modal, PhotoButton, PhotoList, Progress, SectionTitle, Spinner, TabBar, api, fmtDate, logout, t, toast, useMe, usePoll,
 } from '@/components/ui';
+import { I, IconBox, PAY_ICON, SERVICE_ICON } from '@/components/Icons';
+import { Onboarding } from '@/components/Onboarding';
 import { LangSwitch, useLang } from '@/components/i18n';
 import { PAYMENT_LABEL, SERVICES, SIZE_LABEL, Settings, WEEKDAYS, money } from '@/lib/domain';
 
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
 const ACTIVE = (s: string) => !['done', 'cancelled'].includes(s);
+// old tab names (links, bookmarks) → the merged screens
+const TAB_ALIAS: Record<string, string> = { orders: 'home', subs: 'home', wallet: 'profile', new: 'new', home: 'home', profile: 'profile' };
+const PAY_SHORT: Record<string, string> = { wallet: 'Баланс', online: 'Онлайн', cash: 'Наличные', card: 'Перевод' };
 
 export default function ClientPage() {
   useLang();
   const { me, reload: reloadMe } = useMe();
-  const [tab, setTab] = useState('orders');
+  const [tab, setTabRaw] = useState('home');
   const [orders, setOrders] = useState<any[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [walletVersion, setWalletVersion] = useState(0);
   const [pay, setPay] = useState<{ order?: any; purpose: 'order' | 'tip' | 'topup'; amount: number } | null>(null);
+  const [tour, setTour] = useState(false);
+  const setTab = (k: string) => {
+    setTabRaw(k);
+    window.scrollTo({ top: 0 });
+  };
 
   useEffect(() => {
     if (me && (!me.user || me.user.role !== 'client')) location.replace('/');
   }, [me]);
   useEffect(() => {
-    const t = new URLSearchParams(location.search).get('tab');
-    if (t) setTab(t);
+    const q = new URLSearchParams(location.search).get('tab');
+    if (q && TAB_ALIAS[q]) setTabRaw(TAB_ALIAS[q]);
   }, []);
 
   const load = () => api('/api/orders').then((d) => setOrders(d.orders)).catch(() => {});
   usePoll(load, 8000);
-
-  useEffect(() => {
-    if (orders && orders.length === 0 && tab === 'orders' && !new URLSearchParams(location.search).get('tab')) setTab('new');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders === null]);
 
   if (!me?.user) return <Spinner />;
   const active = (orders || []).filter((o) => ACTIVE(o.status));
@@ -47,11 +52,24 @@ export default function ClientPage() {
 
   return (
     <div className="shell">
+      <Onboarding kind="client" force={tour} onClose={() => setTour(false)} />
       <div className="topbar">
         <Brand />
-        <button className="chip" onClick={() => setTab('wallet')} style={{ fontWeight: 700 }}>👛 {money(me.user.balance, cur)}</button>
+        <button className="chip" onClick={() => setTab('profile')} style={{ fontWeight: 700 }} aria-label={t('Баланс')}>
+          <I n="wallet" size={16} style={{ color: 'var(--g600)' }} />{money(me.user.balance, cur)}
+        </button>
       </div>
-      {me.user.demo && <div className="banner">{t('Вы в демо-аккаунте клиента. Попробуйте оформить заказ и откройте демо исполнителя в другой вкладке.')}</div>}
+      {me.user.demo && <div className="banner row"><I n="info" size={18} />{t('Вы в демо-аккаунте клиента. Попробуйте оформить заказ и откройте демо исполнителя в другой вкладке.')}</div>}
+
+      {tab === 'home' && (
+        <Home
+          me={me}
+          orders={orders}
+          onNew={() => setTab('new')}
+          onOpen={setOpenId}
+          onPay={(o) => setPay({ order: o, purpose: 'order', amount: o.price })}
+        />
+      )}
 
       {tab === 'new' && (
         <NewOrder
@@ -59,92 +77,55 @@ export default function ClientPage() {
           onCreated={(o) => {
             load();
             reloadMe();
-            setTab('orders');
+            setTab('home');
             if (o.payment === 'online' && o.price > 0) setPay({ order: o, purpose: 'order', amount: o.price });
             else toast(t('Заказ создан! Ищем исполнителя'));
           }}
         />
       )}
 
-      {tab === 'orders' && (
-        <>
-          <div className="row between" style={{ marginBottom: 12 }}>
-            <h1 style={{ margin: 0 }}>{t('Мои заказы')}</h1>
-            <button className="btn sm" onClick={() => setTab('new')}>+ {t('Новый')}</button>
-          </div>
-          {orders === null ? (
-            <Spinner />
-          ) : orders.length === 0 ? (
-            <div className="empty">
-              <div className="big">🗑️</div>
-              {t('Заказов пока нет')}
-              <div style={{ marginTop: 12 }}>
-                <button className="btn" onClick={() => setTab('new')}>{t('Вынести мусор')}</button>
-              </div>
-            </div>
-          ) : (
-            orders.map((o) => (
-              <div key={o.id} className="card tap stack" onClick={() => setOpenId(o.id)}>
-                <OrderHead o={o} />
-                {ACTIVE(o.status) && <Progress value={orderProgress(o)} />}
-                <div className="row between small">
-                  <span className="muted">
-                    {o.bags} {t(SERVICES[o.service || 'trash'].unit)} · {o.workerName ? t('исполнитель: {name}', { name: o.workerName }) : t('ищем исполнителя')}
-                  </span>
-                  <b>{money(o.price, o.currency)}</b>
-                </div>
-                {o.payment === 'online' && o.paymentStatus === 'pending' && o.status !== 'cancelled' && (
-                  <button className="btn sm" onClick={(e) => { e.stopPropagation(); setPay({ order: o, purpose: 'order', amount: o.price }); }}>
-                    {t('Оплатить {sum}', { sum: money(o.price, o.currency) })}
-                  </button>
-                )}
-              </div>
-            ))
-          )}
-        </>
-      )}
-
-      {tab === 'subs' && <Subscriptions me={me} />}
-
-      {tab === 'wallet' && <Wallet key={walletVersion} me={me} onTopup={(amount) => setPay({ purpose: 'topup', amount })} />}
-
       {tab === 'profile' && (
         <div className="stack">
-          <h1>{t('Профиль')}</h1>
-          <div className="card">
-            <dl className="kv">
-              <dt>{t('Имя')}</dt><dd>{me.user.name}</dd>
-              <dt>{t('Телефон')}</dt><dd>{me.user.phone}</dd>
-              <dt>{t('Заказов')}</dt><dd>{orders?.length ?? '...'}</dd>
-              <dt>{t('Баланс')}</dt><dd>{money(me.user.balance, cur)}</dd>
-              <dt>{t('Бонусы')}</dt><dd>{money(me.user.bonus, cur)}</dd>
-            </dl>
-          </div>
-          <div className="card row between"><span>{t('Язык')}</span><LangSwitch /></div>
-          <Referral me={me} />
-          <PushToggle vapidKey={me.vapidPublicKey} />
-          {!!me.user.addresses?.length && (
-            <div className="card">
-              <h3>{t('Сохранённые адреса')}</h3>
-              {me.user.addresses.map((a: any, i: number) => (
-                <div key={i} className="small" style={{ padding: '6px 0' }}>📍 {a.street}, {a.house}, {t('этаж {n}', { n: a.floor })}, {t('кв. {n}', { n: a.apt })}</div>
-              ))}
+          <div className="row" style={{ gap: 12 }}>
+            <IconBox n="user" size={52} />
+            <div className="grow">
+              <h2 style={{ margin: 0 }}>{me.user.name}</h2>
+              <div className="muted small">{me.user.phone} · {t('Заказов')}: {orders?.length ?? '…'}</div>
             </div>
-          )}
-          <div className="card">
-            <h3>{t('Тарифы')}</h3>
-            <dl className="kv">
-              <dt>🗑️ {t('1 мешок')}</dt><dd>{money(me.settings.basePrice, cur)}</dd>
-              <dt>{t('Каждый следующий')}</dt><dd>+{money(me.settings.extraBagPrice, cur)}</dd>
-              <dt>{t('Большой мешок')}</dt><dd>+{money(me.settings.largeBagExtra, cur)} / {t('шт')}</dd>
-              <dt>♻️ {t('Вторсырьё')}</dt><dd>{money(me.settings.recyclePrice, cur)} / {t('мешок')}</dd>
-              <dt>🛋️ {t('Крупногабарит')}</dt><dd>{money(me.settings.bulkyItemPrice, cur)} / {t('предмет')}</dd>
-              <dt>{t('Срочно')}</dt><dd>+{money(me.settings.expressPrice, cur)}</dd>
-              <dt>{t('Подписка')}</dt><dd>{t('−{p}% на каждый вынос', { p: me.settings.subscriptionDiscountPercent })}</dd>
-            </dl>
           </div>
-          <a className="btn ghost block" href="/install">{t('Установить приложение на телефон')}</a>
-          <button className="btn danger block" onClick={logout}>{t('Выйти')}</button>
+          <Wallet key={walletVersion} me={me} onTopup={(amount) => setPay({ purpose: 'topup', amount })} />
+
+          <div className="label">{t('Настройки')}</div>
+          <div className="menu">
+            <MenuRow icon="globe" title={t('Язык')} right={<LangSwitch compact />} />
+            <PushToggle vapidKey={me.vapidPublicKey} />
+            {!!me.user.addresses?.length && (
+              <Disclosure icon="pin" title={t('Сохранённые адреса')} hint={`${me.user.addresses.length}`}>
+                {me.user.addresses.map((a: any, i: number) => (
+                  <div key={i} className="small row" style={{ padding: '6px 0' }}><I n="pin" size={16} style={{ color: 'var(--g600)' }} />{a.street}, {a.house}, {t('этаж {n}', { n: a.floor })}, {t('кв. {n}', { n: a.apt })}</div>
+                ))}
+              </Disclosure>
+            )}
+          </div>
+
+          <div className="label">{t('Ещё')}</div>
+          <div className="menu">
+            <Referral me={me} />
+            <Disclosure icon="tag" title={t('Тарифы')}>
+              <dl className="kv">
+                <dt>{t('1 мешок')}</dt><dd>{money(me.settings.basePrice, cur)}</dd>
+                <dt>{t('Каждый следующий')}</dt><dd>+{money(me.settings.extraBagPrice, cur)}</dd>
+                <dt>{t('Большой мешок')}</dt><dd>+{money(me.settings.largeBagExtra, cur)} / {t('шт')}</dd>
+                <dt>{t('Вторсырьё')}</dt><dd>{money(me.settings.recyclePrice, cur)} / {t('мешок')}</dd>
+                <dt>{t('Крупногабарит')}</dt><dd>{money(me.settings.bulkyItemPrice, cur)} / {t('предмет')}</dd>
+                <dt>{t('Срочно')}</dt><dd>+{money(me.settings.expressPrice, cur)}</dd>
+                <dt>{t('Подписка')}</dt><dd>{t('−{p}% на каждый вынос', { p: me.settings.subscriptionDiscountPercent })}</dd>
+              </dl>
+            </Disclosure>
+            <MenuRow icon="help" tone="gray" title={t('Как пользоваться')} onClick={() => setTour(true)} />
+            <MenuRow icon="download" tone="gray" title={t('Установить приложение на телефон')} href="/install" />
+            <MenuRow icon="logout" danger title={t('Выйти')} onClick={logout} right={<span />} />
+          </div>
         </div>
       )}
 
@@ -179,13 +160,84 @@ export default function ClientPage() {
         value={tab}
         onChange={setTab}
         tabs={[
-          { key: 'new', label: t('Заказать'), icon: Icon.plus },
-          { key: 'orders', label: t('Заказы'), icon: Icon.list, dot: active.length },
-          { key: 'wallet', label: t('Кошелёк'), icon: Icon.wallet },
-          { key: 'subs', label: t('Подписка|tab'), icon: Icon.repeat },
+          { key: 'home', label: t('Главная'), icon: Icon.home, dot: active.length },
+          { key: 'new', label: t('Заказать'), icon: Icon.plus, primary: true },
           { key: 'profile', label: t('Профиль'), icon: Icon.user },
         ]}
       />
+    </div>
+  );
+}
+
+function OrderCard({ o, onOpen, onPay }: { o: any; onOpen: (id: string) => void; onPay: (o: any) => void }) {
+  return (
+    <div className="card tap stack" onClick={() => onOpen(o.id)}>
+      <OrderHead o={o} />
+      {ACTIVE(o.status) && <Progress value={orderProgress(o)} />}
+      <div className="row between">
+        <div className="meta">
+          <span><I n="bag" size={14} />{o.bags} {t(SERVICES[o.service || 'trash'].unit)}</span>
+          <span><I n="user" size={14} />{o.workerName || t('ищем исполнителя')}</span>
+        </div>
+        <b>{money(o.price, o.currency)}</b>
+      </div>
+      {o.payment === 'online' && o.paymentStatus === 'pending' && o.status !== 'cancelled' && (
+        <button className="btn sm" onClick={(e) => { e.stopPropagation(); onPay(o); }}>
+          <I n="card" size={18} />{t('Оплатить {sum}', { sum: money(o.price, o.currency) })}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Home({ me, orders, onNew, onOpen, onPay }: { me: any; orders: any[] | null; onNew: () => void; onOpen: (id: string) => void; onPay: (o: any) => void }) {
+  const [all, setAll] = useState(false);
+  const active = (orders || []).filter((o) => ACTIVE(o.status));
+  const past = (orders || []).filter((o) => !ACTIVE(o.status));
+  const first = me.user.name?.split(' ')[0];
+  return (
+    <div className="stack">
+      <div>
+        <h1 style={{ margin: 0 }}>{t('Привет, {name}!', { name: first })}</h1>
+        <div className="muted">{active.length ? t('Следим за вашим заказом') : t('Что вынесем сегодня?')}</div>
+      </div>
+      <button className="cta" onClick={onNew}>
+        <span className="ibox"><I n="trash" size={26} /></span>
+        <span className="grow"><b>{t('Вынести мусор')}</b><span className="s">{t('Заказ за минуту · от {sum}', { sum: money(me.settings.basePrice, me.settings.currency) })}</span></span>
+        <I n="chevron" size={22} />
+      </button>
+
+      {orders === null ? (
+        <Spinner />
+      ) : (
+        <>
+          {active.length > 0 && (
+            <>
+              <div className="label">{t('Активные заказы')}</div>
+              {active.map((o) => <OrderCard key={o.id} o={o} onOpen={onOpen} onPay={onPay} />)}
+            </>
+          )}
+          <Subscriptions me={me} />
+          {past.length > 0 && (
+            <>
+              <div className="label">{t('История')}</div>
+              <div className="menu">
+                {(all ? past : past.slice(0, 4)).map((o) => (
+                  <MenuRow
+                    key={o.id}
+                    icon={SERVICE_ICON[o.service || 'trash']}
+                    tone={o.status === 'cancelled' ? 'gray' : 'green'}
+                    title={`${o.address?.street || ''}, ${o.address?.house || ''}`}
+                    hint={`${fmtDate(o.completedAt || o.createdAt)} · ${o.status === 'cancelled' ? t('Отменён') : money(o.price, o.currency)}`}
+                    onClick={() => onOpen(o.id)}
+                  />
+                ))}
+              </div>
+              {past.length > 4 && !all && <button className="btn plain block" onClick={() => setAll(true)}>{t('Показать все ({n})', { n: past.length })}</button>}
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -203,10 +255,10 @@ function useQuote(body: any) {
 
 function ServicePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <div className="grid3">
+    <div className="tiles">
       {Object.entries(SERVICES).map(([k, v]) => (
-        <button key={k} type="button" className={`svc ${value === k ? 'on' : ''}`} onClick={() => onChange(k)}>
-          <span style={{ fontSize: 26 }}>{v.icon}</span>
+        <button key={k} type="button" className={`tile ${value === k ? 'on' : ''}`} onClick={() => onChange(k)} aria-pressed={value === k}>
+          <span className="ibox"><I n={SERVICE_ICON[k]} size={20} /></span>
           <span>{t(v.title)}</span>
         </button>
       ))}
@@ -214,7 +266,7 @@ function ServicePicker({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
-function QuoteBox({ qt, cur }: { qt: any; cur: string }) {
+function QuoteLines({ qt, cur }: { qt: any; cur: string }) {
   if (!qt) return null;
   return (
     <div className="stack" style={{ gap: 4 }}>
@@ -224,16 +276,23 @@ function QuoteBox({ qt, cur }: { qt: any; cur: string }) {
       {qt.discounts.map((l: any, i: number) => (
         <div key={i} className="row between small" style={{ color: 'var(--g600)' }}><span>{t(l.label)}</span><span>−{money(l.amount, cur)}</span></div>
       ))}
-      <div className="row between" style={{ marginTop: 6 }}>
-        <span className="muted">{t('Итого')}</span>
-        <span className="price">{money(qt.total, cur)}</span>
-      </div>
+    </div>
+  );
+}
+
+function Stepper({ value, set, max }: { value: number; set: (n: number) => void; max: number }) {
+  return (
+    <div className="stepper">
+      <button type="button" onClick={() => set(Math.max(1, value - 1))} aria-label="−">−</button>
+      <b>{value}</b>
+      <button type="button" onClick={() => set(Math.min(max, value + 1))} aria-label="+">+</button>
     </div>
   );
 }
 
 function NewOrder({ me, onCreated }: { me: any; onCreated: (o: any) => void }) {
   const settings: Settings = me.settings;
+  const cur = settings.currency;
   const addresses = me.user.addresses || [];
   const [service, setService] = useState('trash');
   const [addr, setAddr] = useState<any>(emptyAddress(settings, addresses[0]));
@@ -277,22 +336,42 @@ function NewOrder({ me, onCreated }: { me: any; onCreated: (o: any) => void }) {
     }
   }
 
+  const short = !(balance >= (qt?.total ?? 0));
+
   return (
     <div className="stack">
-      <h1>{t('Вынести мусор')}</h1>
-      {me.user.referralFirstOrder && <div className="note">🎁 {t('Скидка {sum} на первый заказ по приглашению', { sum: money(settings.referralNewClientDiscount, settings.currency) })}</div>}
+      <h1>{t('Новый заказ')}</h1>
+      {me.user.referralFirstOrder && <div className="note row"><I n="gift" size={18} />{t('Скидка {sum} на первый заказ по приглашению', { sum: money(settings.referralNewClientDiscount, cur) })}</div>}
 
       <div className="card stack">
-        <h3>1. {t('Что выносим')}</h3>
+        <SectionTitle icon="trash">{t('Что выносим')}</SectionTitle>
         <ServicePicker value={service} onChange={setService} />
         <div className="small muted">{t(SERVICES[service].hint)}</div>
+        <div className="row between">
+          <span style={{ fontWeight: 600 }}>{service === 'bulky' ? t('Количество предметов') : t('Количество мешков')}</span>
+          <Stepper value={bags} set={setBags} max={settings.maxBags} />
+        </div>
+        {service === 'trash' ? (
+          <>
+            <div className="chips">
+              {Object.entries(SIZE_LABEL).map(([k, v]) => (
+                <button key={k} type="button" className={`chip ${size === k ? 'on' : ''}`} onClick={() => setSize(k)}>{t(v)}</button>
+              ))}
+            </div>
+            <label className="check">
+              <I n="sofa" size={20} style={{ color: 'var(--g600)' }} />
+              <span className="grow">{t('Плюс один крупный предмет')}<div className="small muted">+{money(settings.bulkyPrice, cur)}</div></span>
+              <input type="checkbox" checked={bulky} onChange={(e) => setBulky(e.target.checked)} />
+            </label>
+          </>
+        ) : (
+          <div className="small muted">{t('Цена: {sum} за {unit}', { sum: money(service === 'bulky' ? settings.bulkyItemPrice : settings.recyclePrice, cur), unit: t(unit) })}</div>
+        )}
       </div>
 
       <div className="card stack">
-        <h3>2. {t('Фото у двери')}</h3>
-        <p className="muted small" style={{ margin: 0 }}>
-          {t('Поставьте мусор у двери и сфотографируйте так, чтобы была видна дверь или номер квартиры. Исполнитель сверит фото на месте.')}
-        </p>
+        <SectionTitle icon="camera">{t('Фото у двери')}</SectionTitle>
+        <p className="muted small" style={{ margin: 0 }}>{t('Чтобы были видны пакеты и номер квартиры. Исполнитель сверит фото на месте.')}</p>
         <div className="photos">
           <PhotoList urls={photos} onRemove={(i) => setPhotos(photos.filter((_, j) => j !== i))} />
           {photos.length < 4 && (
@@ -305,38 +384,12 @@ function NewOrder({ me, onCreated }: { me: any; onCreated: (o: any) => void }) {
       </div>
 
       <div className="card stack">
-        <h3>3. {t('Адрес')}</h3>
+        <SectionTitle icon="pin">{t('Адрес')}</SectionTitle>
         <AddressFields addr={addr} setAddr={setAddr} settings={settings} saved={addresses.length > 1 ? addresses : []} />
       </div>
 
       <div className="card stack">
-        <h3>4. {t('Объём')}</h3>
-        <div className="row between">
-          <span>{service === 'bulky' ? t('Количество предметов') : t('Количество мешков')}</span>
-          <div className="stepper">
-            <button type="button" onClick={() => setBags(Math.max(1, bags - 1))}>−</button>
-            <b>{bags}</b>
-            <button type="button" onClick={() => setBags(Math.min(settings.maxBags, bags + 1))}>+</button>
-          </div>
-        </div>
-        {service === 'trash' && (
-          <>
-            <div className="chips">
-              {Object.entries(SIZE_LABEL).map(([k, v]) => (
-                <button key={k} type="button" className={`chip ${size === k ? 'on' : ''}`} onClick={() => setSize(k)}>{t(v)}</button>
-              ))}
-            </div>
-            <label className="check">
-              <input type="checkbox" checked={bulky} onChange={(e) => setBulky(e.target.checked)} />
-              <span className="grow">{t('Плюс один крупный предмет')}<div className="small muted">+{money(settings.bulkyPrice, settings.currency)}</div></span>
-            </label>
-          </>
-        )}
-        {service !== 'trash' && <div className="small muted">{t('Цена: {sum} за {unit}', { sum: money(service === 'bulky' ? settings.bulkyItemPrice : settings.recyclePrice, settings.currency), unit: t(unit) })}</div>}
-      </div>
-
-      <div className="card stack">
-        <h3>5. {t('Когда забрать')}</h3>
+        <SectionTitle icon="clock">{t('Когда забрать')}</SectionTitle>
         <div className="seg">
           <button type="button" className={whenMode === 'asap' ? 'on' : ''} onClick={() => setWhenMode('asap')}>{t('Как можно скорее')}</button>
           <button type="button" className={whenMode === 'time' ? 'on' : ''} onClick={() => setWhenMode('time')}>{t('Ко времени')}</button>
@@ -345,47 +398,56 @@ function NewOrder({ me, onCreated }: { me: any; onCreated: (o: any) => void }) {
           <input className="input" type="datetime-local" value={whenTime} onChange={(e) => setWhenTime(e.target.value)} />
         ) : (
           <label className="check">
+            <I n="zap" size={20} style={{ color: 'var(--amber)' }} />
+            <span className="grow">{t('Срочно, в течение 30 минут')}<div className="small muted">+{money(settings.expressPrice, cur)}</div></span>
             <input type="checkbox" checked={express} onChange={(e) => setExpress(e.target.checked)} />
-            <span className="grow">{t('Срочно, в течение 30 минут')}<div className="small muted">+{money(settings.expressPrice, settings.currency)}</div></span>
           </label>
         )}
       </div>
 
       <div className="card stack">
-        <h3>6. {t('Оплата')}</h3>
-        {['wallet', 'online', 'cash', 'card'].map((p) => (
-          <label key={p} className="check" style={{ borderColor: payment === p ? 'var(--g500)' : undefined }}>
-            <input type="radio" name="pay" checked={payment === p} onChange={() => setPayment(p)} />
-            <span className="grow">
-              {p === 'wallet' ? `👛 ${t('С баланса')}` : t(PAYMENT_LABEL[p])}
-              {p === 'wallet' && (
-                <div className="small" style={{ color: qt && balance < qt.total ? 'var(--danger)' : 'var(--muted)' }}>
-                  {t('На балансе {sum}', { sum: money(balance, settings.currency) })}
-                  {qt && balance < qt.total ? ` · ${t('не хватает {sum}', { sum: money(qt.total - balance, settings.currency) })}` : ''}
-                </div>
-              )}
-            </span>
-          </label>
-        ))}
-        <div className="row">
-          <input className="input grow" placeholder={t('Промокод')} value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} />
+        <SectionTitle icon="wallet">{t('Оплата')}</SectionTitle>
+        <div className="tiles" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          {['wallet', 'online', 'cash', 'card'].map((p) => (
+            <button key={p} type="button" className={`tile ${payment === p ? 'on' : ''}`} onClick={() => setPayment(p)} aria-pressed={payment === p} title={t(PAYMENT_LABEL[p])}>
+              <span className="ibox"><I n={PAY_ICON[p]} size={20} /></span>
+              <span>{t(PAY_SHORT[p])}</span>
+            </button>
+          ))}
         </div>
-        {promo && qt?.promoValid === false && <div className="small" style={{ color: 'var(--danger)' }}>{t('Промокод не найден')}</div>}
-        {promo && qt?.promoValid && <div className="small" style={{ color: 'var(--g600)' }}>{t('Промокод применён')} ✓</div>}
-        {me.user.bonus > 0 && (
-          <label className="check">
-            <input type="checkbox" checked={useBonus} onChange={(e) => setUseBonus(e.target.checked)} />
-            <span className="grow">{t('Списать бонусы ({sum})', { sum: money(me.user.bonus, settings.currency) })}</span>
-          </label>
-        )}
-        <textarea className="input" value={comment} onChange={(e) => setComment(e.target.value)} placeholder={t('Комментарий: например, пакеты справа от двери')} />
+        <div className="small" style={{ color: payment === 'wallet' && qt && short ? 'var(--danger)' : 'var(--muted)' }}>
+          {payment === 'wallet'
+            ? `${t('На балансе {sum}', { sum: money(balance, cur) })}${qt && short ? ` · ${t('не хватает {sum}', { sum: money(qt.total - balance, cur) })}` : ''}`
+            : t(PAYMENT_LABEL[payment])}
+        </div>
+        <div className="menu" style={{ boxShadow: 'none' }}>
+          <Disclosure icon="tag" title={t('Промокод и комментарий')} defaultOpen={!!(promo || comment)}>
+            <div className="stack">
+              <input className="input" placeholder={t('Промокод')} value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} />
+              {promo && qt?.promoValid === false && <div className="small" style={{ color: 'var(--danger)' }}>{t('Промокод не найден')}</div>}
+              {promo && qt?.promoValid && <div className="small" style={{ color: 'var(--g600)' }}>{t('Промокод применён')} ✓</div>}
+              {me.user.bonus > 0 && (
+                <label className="check">
+                  <I n="gift" size={20} style={{ color: 'var(--g600)' }} />
+                  <span className="grow">{t('Списать бонусы ({sum})', { sum: money(me.user.bonus, cur) })}</span>
+                  <input type="checkbox" checked={useBonus} onChange={(e) => setUseBonus(e.target.checked)} />
+                </label>
+              )}
+              <textarea className="input" value={comment} onChange={(e) => setComment(e.target.value)} placeholder={t('Комментарий: например, пакеты справа от двери')} />
+            </div>
+          </Disclosure>
+        </div>
+        <QuoteLines qt={qt} cur={cur} />
+        {error && <div className="error">{error}</div>}
       </div>
 
-      <div className="card stack">
-        <QuoteBox qt={qt} cur={settings.currency} />
-        {error && <div className="error">{error}</div>}
-        <button className="btn block lg" onClick={submit} disabled={busy}>
-          {busy ? <span className="spin" /> : payment === 'online' || payment === 'wallet' ? t('Заказать и оплатить') : t('Заказать вынос')}
+      <div className="paybar">
+        <div>
+          <div className="small muted">{t('Итого')}</div>
+          <div className="tot">{qt ? money(qt.total, cur) : '…'}</div>
+        </div>
+        <button className="btn lg" onClick={submit} disabled={busy}>
+          {busy ? <span className="spin" /> : <><I n="check" size={20} stroke={2.6} />{payment === 'online' || payment === 'wallet' ? t('Заказать и оплатить') : t('Заказать вынос')}</>}
         </button>
       </div>
     </div>
@@ -418,11 +480,11 @@ function ClientOrderModal({
     <Modal title={t('Заказ №{n}', { n: o.num })} onClose={onClose}>
       <div className="stack">
         {o.payment === 'online' && o.paymentStatus === 'pending' && o.status !== 'cancelled' && (
-          <button className="btn block lg" onClick={() => onPay('order', o.price)}>{t('Оплатить {sum}', { sum: money(o.price, o.currency) })}</button>
+          <button className="btn block lg" onClick={() => onPay('order', o.price)}><I n="card" size={20} />{t('Оплатить {sum}', { sum: money(o.price, o.currency) })}</button>
         )}
         {showMap && (
           <div className="card stack">
-            <h3>{o.workerLoc && ['accepted', 'on_way', 'arrived'].includes(o.status) ? t('Где исполнитель') : t('Адрес на карте')}</h3>
+            <SectionTitle icon="map">{o.workerLoc && ['accepted', 'on_way', 'arrived'].includes(o.status) ? t('Где исполнитель') : t('Адрес на карте')}</SectionTitle>
             <MapView markers={markers} height={200} />
             {o.workerLoc && <div className="small muted">{t('Обновлено {time}', { time: fmtDate(o.workerLoc.at) })}</div>}
           </div>
@@ -432,12 +494,12 @@ function ClientOrderModal({
           <OrderSummary o={o} />
         </div>
         <div className="card">
-          <h3>{t('Ход выполнения')}</h3>
+          <SectionTitle icon="route">{t('Ход выполнения')}</SectionTitle>
           <Timeline o={o} />
         </div>
         {o.status === 'done' && !o.rating && (
           <div className="card stack">
-            <h3>{t('Оцените работу')}</h3>
+            <SectionTitle icon="star">{t('Оцените работу')}</SectionTitle>
             <div className="row">
               {[1, 2, 3, 4, 5].map((n) => (
                 <button key={n} className="btn plain" style={{ fontSize: 32, padding: 2, color: n <= rating ? '#f59e0b' : '#cbd5e1' }} onClick={() => setRating(n)}>★</button>
@@ -450,7 +512,7 @@ function ClientOrderModal({
         {o.rating && <div className="note">{t('Ваша оценка:')} {'★'.repeat(o.rating)} {o.review}</div>}
         {o.status === 'done' && (
           <div className="card stack">
-            <h3>{t('Чаевые исполнителю')} {o.tip ? `· ${t('уже {sum}', { sum: money(o.tip, o.currency) })}` : ''}</h3>
+            <SectionTitle icon="gift">{t('Чаевые исполнителю')} {o.tip ? `· ${t('уже {sum}', { sum: money(o.tip, o.currency) })}` : ''}</SectionTitle>
             <div className="chips">
               {tipOptions.map((t) => (
                 <button key={t} className="chip" onClick={() => onPay('tip', t)}>+{money(t, o.currency)}</button>
@@ -460,7 +522,7 @@ function ClientOrderModal({
         )}
         {['new', 'accepted'].includes(o.status) && (
           <button className="btn danger block" disabled={busy} onClick={() => confirm(t('Отменить заказ?')) && act({ action: 'cancel' }, t('Заказ отменён'))}>
-            {t('Отменить заказ')}
+            <I n="x" size={18} />{t('Отменить заказ')}
           </button>
         )}
       </div>
@@ -487,24 +549,28 @@ function Subscriptions({ me }: { me: any }) {
   }
 
   return (
-    <div className="stack">
-      <div className="row between">
-        <h1 style={{ margin: 0 }}>{t('Подписка')}</h1>
-        {!creating && <button className="btn sm" onClick={() => setCreating(true)}>+ {t('Оформить')}</button>}
-      </div>
-      <div className="note">
-        🔁 {t('Выносим мусор по расписанию, вам ничего не нужно заказывать. Скидка {p}% на каждый вынос. Заказ создаётся автоматически утром в выбранные дни.', { p: settings.subscriptionDiscountPercent })}
-      </div>
+    <>
+      <div className="label">{t('Регулярный вынос')}</div>
       {creating && <NewSubscription me={me} onDone={() => { setCreating(false); load(); toast(t('Подписка оформлена')); }} onCancel={() => setCreating(false)} />}
-      {subs === null ? (
-        <Spinner />
-      ) : subs.length === 0 && !creating ? (
-        <div className="empty"><div className="big">📅</div>{t('Подписок пока нет')}</div>
+      {subs === null ? null : subs.length === 0 && !creating ? (
+        <div className="menu">
+          <MenuRow
+            icon="repeat"
+            title={t('Вынос по расписанию')}
+            hint={t('Выбираете дни, заказ создаётся сам. Скидка {p}%', { p: settings.subscriptionDiscountPercent })}
+            onClick={() => setCreating(true)}
+            right={<span className="btn sm" style={{ boxShadow: 'none' }}><I n="plus" size={16} />{t('Оформить')}</span>}
+          />
+        </div>
       ) : (
         subs.map((s) => (
           <div key={s.id} className="card stack">
-            <div className="row between">
-              <b>{SERVICES[s.service]?.icon} {t(SERVICES[s.service]?.title)}</b>
+            <div className="ohead">
+              <IconBox n="repeat" tone={s.active ? 'green' : 'gray'} />
+              <div className="grow">
+                <b>{t(SERVICES[s.service]?.title)}</b>
+                <div className="small muted">{s.address?.street}, {s.address?.house}, {t('кв. {n}', { n: s.address?.apt })}</div>
+              </div>
               <span className={`badge ${s.active ? 'green' : 'gray'}`}>{s.active ? t('Активна') : t('На паузе')}</span>
             </div>
             <div className="chips">
@@ -512,21 +578,23 @@ function Subscriptions({ me }: { me: any }) {
                 <span key={d} className={`chip ${s.days.includes(i) ? 'on' : ''}`} style={{ padding: '4px 10px' }}>{t(d)}</span>
               ))}
             </div>
-            <div className="small">
-              ⏰ {s.time} · {s.bags} {t(SERVICES[s.service]?.unit)} · 📍 {s.address?.street}, {s.address?.house}, {t('кв. {n}', { n: s.address?.apt })}
-            </div>
-            <div className="row between small">
-              <span className="muted">{t(PAYMENT_LABEL[s.payment])}</span>
-              <b>{t('{sum} за вынос', { sum: money(s.perVisit, settings.currency) })} · ~{t('{sum}/мес', { sum: money(s.perVisit * s.days.length * 4.3, settings.currency) })}</b>
+            <div className="row between">
+              <div className="meta">
+                <span><I n="clock" size={14} />{s.time}</span>
+                <span><I n="bag" size={14} />{s.bags} {t(SERVICES[s.service]?.unit)}</span>
+                <span><I n={PAY_ICON[s.payment] || 'cash'} size={14} />{t(PAY_SHORT[s.payment] || s.payment)}</span>
+              </div>
+              <b className="small">{t('{sum} за вынос', { sum: money(s.perVisit, settings.currency) })}</b>
             </div>
             <div className="row">
-              <button className="btn ghost sm grow" onClick={() => act(s.id, 'toggle')}>{s.active ? `⏸ ${t('Пауза')}` : `▶ ${t('Возобновить')}`}</button>
-              <button className="btn danger sm" onClick={() => confirm(t('Удалить подписку?')) && act(s.id, 'delete')}>{t('Удалить')}</button>
+              <button className="btn ghost sm grow" onClick={() => act(s.id, 'toggle')}><I n={s.active ? 'pause' : 'play'} size={16} />{s.active ? t('Пауза') : t('Возобновить')}</button>
+              <button className="iconbtn" style={{ color: 'var(--danger)' }} aria-label={t('Удалить')} title={t('Удалить')} onClick={() => confirm(t('Удалить подписку?')) && act(s.id, 'delete')}><I n="trash" size={18} /></button>
             </div>
           </div>
         ))
       )}
-    </div>
+      {!!subs?.length && !creating && <button className="btn ghost block sm" onClick={() => setCreating(true)}><I n="plus" size={16} />{t('Ещё одно расписание')}</button>}
+    </>
   );
 }
 
@@ -552,7 +620,8 @@ function NewSubscription({ me, onDone, onCancel }: { me: any; onDone: () => void
   }
   return (
     <div className="card stack">
-      <h3>{t('Новая подписка')}</h3>
+      <SectionTitle icon="repeat">{t('Новая подписка')}</SectionTitle>
+      <div className="small muted">{t('Выносим мусор по расписанию, вам ничего не нужно заказывать. Скидка {p}% на каждый вынос. Заказ создаётся автоматически утром в выбранные дни.', { p: settings.subscriptionDiscountPercent })}</div>
       <ServicePicker value={service} onChange={setService} />
       <div>
         <div className="small muted" style={{ marginBottom: 6 }}>{t('Дни недели')}</div>
@@ -611,20 +680,21 @@ function Referral({ me }: { me: any }) {
     } catch {}
   }
   return (
-    <div className="card stack">
-      <h3>🎁 {t('Пригласите друзей')}</h3>
-      <div className="small">
-        {t('Друг получит {a} скидки на первый заказ, а вы {b} бонусов, когда его заказ будет выполнен.', { a: money(s.referralNewClientDiscount, s.currency), b: money(s.referralBonus, s.currency) })}
+    <Disclosure icon="gift" title={t('Пригласите друзей')} hint={t('Бонус {sum} за каждого друга', { sum: money(s.referralBonus, s.currency) })}>
+      <div className="stack">
+        <div className="small">
+          {t('Друг получит {a} скидки на первый заказ, а вы {b} бонусов, когда его заказ будет выполнен.', { a: money(s.referralNewClientDiscount, s.currency), b: money(s.referralBonus, s.currency) })}
+        </div>
+        <div className="row">
+          <code className="input grow" style={{ display: 'flex', alignItems: 'center', fontWeight: 700, letterSpacing: 1 }}>{code}</code>
+          <button className="btn" onClick={share}><I n="share" size={18} />{t('Поделиться')}</button>
+        </div>
       </div>
-      <div className="row">
-        <code className="input grow" style={{ display: 'flex', alignItems: 'center', fontWeight: 700, letterSpacing: 1 }}>{code}</code>
-        <button className="btn" onClick={share}>{t('Поделиться')}</button>
-      </div>
-    </div>
+    </Disclosure>
   );
 }
 
-const TX_ICON: Record<string, string> = { topup: '➕', order: '🗑️', refund: '↩️', tip: '💚', admin: '🛠️' };
+const TX_ICON: Record<string, string> = { topup: 'plus', order: 'trash', refund: 'back', tip: 'gift', admin: 'settings' };
 
 function Wallet({ me, onTopup }: { me: any; onTopup: (amount: number) => void }) {
   const cur = me.settings.currency;
@@ -635,45 +705,46 @@ function Wallet({ me, onTopup }: { me: any; onTopup: (amount: number) => void })
   }, [me.user.balance]);
   const balance = data?.balance ?? me.user.balance ?? 0;
   return (
-    <div className="stack">
-      <h1>{t('Кошелёк')}</h1>
+    <>
       <div className="wallet-card">
-        <div className="l">{t('Баланс GreenDrop')}</div>
+        <div className="row between">
+          <div className="l row" style={{ gap: 6 }}><I n="wallet" size={18} />{t('Баланс GreenDrop')}</div>
+          {me.user.bonus > 0 && <span className="small" style={{ opacity: 0.9 }}>{t('Бонусы')}: {money(me.user.bonus, cur)}</span>}
+        </div>
         <div className="v">{money(balance, cur)}</div>
-        <div className="small" style={{ opacity: 0.9 }}>{t('Оплачивайте вынос, подписку и чаевые с баланса в одно касание.')}</div>
-      </div>
-      <div className="card stack">
-        <h3>{t('Пополнить')}</h3>
-        <div className="grid2">
-          {[1000, 2000, 5000, 10000].map((a) => (
-            <button key={a} className="btn ghost" onClick={() => onTopup(a)}>+{money(a, cur)}</button>
+        <div className="grid3" style={{ position: 'relative', zIndex: 1 }}>
+          {[1000, 2000, 5000].map((a) => (
+            <button key={a} className="btn sm" onClick={() => onTopup(a)}>+{money(a, cur)}</button>
           ))}
         </div>
-        <div className="row">
-          <input className="input grow" inputMode="numeric" placeholder={t('Другая сумма')} value={custom} onChange={(e) => setCustom(e.target.value.replace(/\D/g, '').slice(0, 6))} />
-          <button className="btn" disabled={Number(custom) < 100} onClick={() => onTopup(Number(custom))}>{t('Пополнить')}</button>
-        </div>
-        <div className="small muted">{t('Демо-режим: пополнение без списания реальных денег.')}</div>
       </div>
-      <div className="card">
-        <h3>{t('История операций')}</h3>
-        {data === null ? (
-          <Spinner />
-        ) : data.tx.length === 0 ? (
-          <div className="muted small">{t('Операций пока нет')}</div>
-        ) : (
-          data.tx.map((x) => (
-            <div key={x.id} className="tx">
-              <div className="ic">{TX_ICON[x.kind] || '•'}</div>
-              <div className="grow">
-                <div style={{ fontWeight: 600 }}>{t(x.note || x.kind)}</div>
-                <div className="small muted">{fmtDate(x.at)}</div>
+      <div className="menu">
+        <Disclosure icon="plus" title={t('Другая сумма')}>
+          <div className="row">
+            <input className="input grow" inputMode="numeric" placeholder={t('Сумма')} value={custom} onChange={(e) => setCustom(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+            <button className="btn" disabled={Number(custom) < 100} onClick={() => onTopup(Number(custom))}>{t('Пополнить')}</button>
+          </div>
+          <div className="small muted" style={{ marginTop: 8 }}>{t('Демо-режим: пополнение без списания реальных денег.')}</div>
+        </Disclosure>
+        <Disclosure icon="list" title={t('История операций')} hint={data?.tx.length ? `${data.tx.length}` : undefined}>
+          {data === null ? (
+            <Spinner />
+          ) : data.tx.length === 0 ? (
+            <div className="muted small">{t('Операций пока нет')}</div>
+          ) : (
+            data.tx.map((x) => (
+              <div key={x.id} className="tx">
+                <div className="ic"><I n={TX_ICON[x.kind] || 'info'} size={18} style={{ color: 'var(--g600)' }} /></div>
+                <div className="grow">
+                  <div style={{ fontWeight: 600 }}>{t(x.note || x.kind)}</div>
+                  <div className="small muted">{fmtDate(x.at)}</div>
+                </div>
+                <div className={`amt ${x.amount > 0 ? 'plus' : ''}`}>{x.amount > 0 ? '+' : '−'}{money(Math.abs(x.amount), cur)}</div>
               </div>
-              <div className={`amt ${x.amount > 0 ? 'plus' : ''}`}>{x.amount > 0 ? '+' : '−'}{money(Math.abs(x.amount), cur)}</div>
-            </div>
-          ))
-        )}
+            ))
+          )}
+        </Disclosure>
       </div>
-    </div>
+    </>
   );
 }

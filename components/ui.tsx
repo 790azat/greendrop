@@ -2,6 +2,7 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { STATUS_COLOR, STATUS_LABEL } from '@/lib/domain';
 import { locale, t, useLang } from './i18n';
+import { I } from './Icons';
 export { t } from './i18n';
 
 export async function api<T = any>(url: string, opts: { method?: string; body?: any } = {}): Promise<T> {
@@ -89,8 +90,8 @@ export function Modal({ title, onClose, children }: { title: ReactNode; onClose:
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
           <h2 style={{ margin: 0 }}>{title}</h2>
-          <button className="btn plain" onClick={onClose} aria-label={t('Закрыть')}>
-            ✕
+          <button className="iconbtn" onClick={onClose} aria-label={t('Закрыть')}>
+            <I n="x" size={20} />
           </button>
         </div>
         {children}
@@ -238,45 +239,27 @@ export function Spinner() {
 }
 
 export const Icon = {
-  plus: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-  ),
-  list: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></svg>
-  ),
-  user: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
-  ),
-  inbox: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z" /></svg>
-  ),
-  truck: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="18" r="2" /></svg>
-  ),
-  wallet: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="14" rx="2" /><path d="M2 10h20M16 15h2" /></svg>
-  ),
-  check: (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
-  ),
-  repeat: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 2l4 4-4 4" /><path d="M3 11V9a3 3 0 0 1 3-3h15" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v2a3 3 0 0 1-3 3H3" /></svg>
-  ),
-  map: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" /><path d="M9 4v14M15 6v14" /></svg>
-  ),
-  camera: (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /><circle cx="12" cy="13.5" r="3.5" /></svg>
-  ),
+  plus: <I n="plus" size={24} stroke={2.2} />,
+  list: <I n="list" size={24} />,
+  user: <I n="user" size={24} />,
+  home: <I n="home" size={24} />,
+  inbox: <I n="inbox" size={24} />,
+  truck: <I n="truck" size={24} />,
+  wallet: <I n="wallet" size={24} />,
+  check: <I n="check" size={18} stroke={3.2} />,
+  repeat: <I n="repeat" size={24} />,
+  map: <I n="map" size={24} />,
+  camera: <I n="camera" size={22} />,
+  chart: <I n="chart" size={24} />,
 };
 
-export function TabBar({ tabs, value, onChange }: { tabs: { key: string; label: string; icon: ReactNode; dot?: number }[]; value: string; onChange: (k: string) => void }) {
+export function TabBar({ tabs, value, onChange }: { tabs: { key: string; label: string; icon: ReactNode; dot?: number; primary?: boolean }[]; value: string; onChange: (k: string) => void }) {
   return (
     <nav className="tabbar">
       <div className="in">
         {tabs.map((tb) => (
-          <button key={tb.key} className={value === tb.key ? 'on' : ''} onClick={() => onChange(tb.key)}>
-            {tb.icon}
+          <button key={tb.key} className={`${value === tb.key ? 'on' : ''} ${tb.primary ? 'primary' : ''}`} onClick={() => onChange(tb.key)} aria-current={value === tb.key ? 'page' : undefined}>
+            {tb.primary ? <span className="fab">{tb.icon}</span> : tb.icon}
             {tb.label}
             {!!tb.dot && <span className="dot">{tb.dot}</span>}
           </button>
@@ -290,6 +273,47 @@ export function Progress({ value }: { value: number }) {
   return (
     <div className="progress">
       <i style={{ width: `${Math.round(value * 100)}%` }} />
+    </div>
+  );
+}
+
+/** Settings-style list row: icon, title, optional hint, and a right-side value or chevron */
+export function MenuRow({
+  icon, title, hint, right, onClick, href, tone = 'green', danger,
+}: { icon: string; title: ReactNode; hint?: ReactNode; right?: ReactNode; onClick?: () => void; href?: string; tone?: 'green' | 'gray' | 'amber' | 'blue' | 'red'; danger?: boolean }) {
+  const inner = (
+    <>
+      <span className={`ibox ${danger ? 'red' : tone}`}><I n={icon} size={20} /></span>
+      <span className="grow">
+        <span className="mr-t">{title}</span>
+        {hint && <span className="mr-h">{hint}</span>}
+      </span>
+      {right ?? ((onClick || href) && <I n="chevron" size={18} style={{ color: 'var(--muted)' }} />)}
+    </>
+  );
+  if (href) return <a className={`mrow ${danger ? 'danger' : ''}`} href={href}>{inner}</a>;
+  if (onClick) return <button type="button" className={`mrow ${danger ? 'danger' : ''}`} onClick={onClick}>{inner}</button>;
+  return <div className="mrow">{inner}</div>;
+}
+
+/** Collapsible block for secondary options (keeps screens short) */
+export function Disclosure({ icon, title, hint, children, defaultOpen = false }: { icon: string; title: ReactNode; hint?: ReactNode; children: ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={`disc ${open ? 'open' : ''}`}>
+      <MenuRow icon={icon} title={title} hint={hint} tone="gray" onClick={() => setOpen(!open)} right={<I n="down" size={18} className="disc-arrow" />} />
+      {open && <div className="disc-body">{children}</div>}
+    </div>
+  );
+}
+
+/** Section title with an icon */
+export function SectionTitle({ icon, children, right }: { icon: string; children: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="sec-t">
+      <I n={icon} size={18} />
+      <span className="grow">{children}</span>
+      {right}
     </div>
   );
 }

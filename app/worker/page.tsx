@@ -5,9 +5,11 @@ import { PushToggle } from '@/components/Push';
 import { Brand } from '@/components/Logo';
 import { OrderHead, OrderSummary, Timeline } from '@/components/OrderDetails';
 import {
-  Icon, Modal, Photo, PhotoButton, Spinner, TabBar, api, fmtDate, fmtWhen, logout, mapsLink, t, toast, useMe, usePoll, addrLine,
+  Icon, MenuRow, Modal, Photo, PhotoButton, SectionTitle, Spinner, TabBar, api, fmtDate, fmtWhen, logout, mapsLink, t, toast, useMe, usePoll, addrLine,
 } from '@/components/ui';
 import { LangSwitch, useLang } from '@/components/i18n';
+import { I, IconBox, SERVICE_ICON } from '@/components/Icons';
+import { Onboarding } from '@/components/Onboarding';
 import { PAID_IN_APP, SERVICES, SIZE_LABEL, money, stepsFor } from '@/lib/domain';
 
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
@@ -46,6 +48,7 @@ export default function WorkerPage() {
     try { if (localStorage.getItem('gd_geo') === '1') setGeo(true); } catch {}
   }, []);
   const [historyOpen, setHistoryOpen] = useState<any>(null);
+  const [tour, setTour] = useState(false);
   const prevAvail = useRef<number | null>(null);
 
   useEffect(() => {
@@ -91,22 +94,28 @@ export default function WorkerPage() {
 
   return (
     <div className="shell">
+      <Onboarding kind="worker" force={tour} onClose={() => setTour(false)} />
       <div className="topbar">
         <Brand />
-        <LangSwitch compact />
+        <span className={`chip ${geo && locState !== 'denied' ? 'on' : ''}`} style={{ padding: '6px 12px' }}>
+          <I n="pin" size={16} />{t('Геолокация')}
+        </span>
       </div>
-      {me.user.demo && <div className="banner">{t('Вы в демо-аккаунте исполнителя. Возьмите заказ и пройдите чек-лист.')}</div>}
+      {me.user.demo && <div className="banner row"><I n="info" size={18} />{t('Вы в демо-аккаунте исполнителя. Возьмите заказ и пройдите чек-лист.')}</div>}
 
       {tab === 'available' && (
         <>
           <h1>{t('Доступные заказы')}</h1>
-          {!geo ? (
-            <button className="btn ghost block sm" style={{ marginBottom: 12 }} onClick={() => { setGeo(true); try { localStorage.setItem('gd_geo', '1'); } catch {} }}>
-              📍 {t('Включить геолокацию: ближние заказы сверху, клиент видит вас на карте')}
-            </button>
-          ) : (
-            <div className="small muted" style={{ marginBottom: 12 }}>
-              {locState === 'denied' ? `⚠️ ${t('Доступ к геолокации запрещён в настройках браузера')}` : `📍 ${t('Геолокация включена')}`}
+          {(!geo || locState === 'denied') && (
+            <div className="menu" style={{ marginBottom: 12 }}>
+              <MenuRow
+                icon="pin"
+                tone={locState === 'denied' ? 'amber' : 'green'}
+                title={locState === 'denied' ? t('Доступ к геолокации запрещён в настройках браузера') : t('Включить геолокацию')}
+                hint={t('Ближние заказы сверху, клиент видит вас на карте')}
+                onClick={() => { setGeo(true); try { localStorage.setItem('gd_geo', '1'); } catch {} }}
+                right={<span className={`switch ${geo && locState !== 'denied' ? 'on' : ''}`} />}
+              />
             </div>
           )}
           {data && data.available.some((o) => o.address?.lat) && (
@@ -124,7 +133,7 @@ export default function WorkerPage() {
             <Spinner />
           ) : data.available.length === 0 ? (
             <div className="empty">
-              <div className="big">🌿</div>
+              <div className="big"><IconBox n="leaf" size={64} /></div>
               {t('Сейчас новых заказов нет. Страница обновляется сама.')}
             </div>
           ) : (
@@ -133,7 +142,7 @@ export default function WorkerPage() {
                 <div className="row between" style={{ alignItems: 'flex-start' }}>
                   <div className="grow">
                     <div className="small muted">№{o.num} · {fmtDate(o.createdAt)}</div>
-                    <div style={{ fontWeight: 700 }}>{SERVICES[o.service || 'trash'].icon} {addrLine(o.address, false)}</div>
+                    <div className="row" style={{ fontWeight: 700, gap: 6 }}><I n={SERVICE_ICON[o.service || 'trash']} size={18} style={{ color: 'var(--g600)' }} />{addrLine(o.address, false)}</div>
                     <div className="small muted">
                       {t(o.address?.city)}
                       {o.distanceKm != null && ` · ${t('{d} от вас', { d: o.distanceKm < 1 ? t('{n} м', { n: Math.round(o.distanceKm * 1000) }) : t('{n} км', { n: o.distanceKm.toFixed(1) }) })}`}
@@ -156,8 +165,8 @@ export default function WorkerPage() {
                     {o.clientPhotos.map((u: string) => <Photo key={u} src={u} />)}
                   </div>
                 )}
-                {o.comment && <div className="small">💬 {o.comment}</div>}
-                <button className="btn block lg" onClick={() => accept(o.id)}>{t('Принять заказ')}</button>
+                {o.comment && <div className="small row" style={{ alignItems: 'flex-start' }}><I n="message" size={16} style={{ color: 'var(--muted)', marginTop: 2 }} />{o.comment}</div>}
+                <button className="btn block lg" onClick={() => accept(o.id)}><I n="check" size={20} stroke={2.6} />{t('Принять заказ')}</button>
               </div>
             ))
           )}
@@ -169,7 +178,7 @@ export default function WorkerPage() {
           <h1>{t('В работе')}</h1>
           {active.length === 0 ? (
             <div className="empty">
-              <div className="big">🧤</div>
+              <div className="big"><IconBox n="truck" size={64} tone="gray" /></div>
               {t('Нет активных заказов')}
               <div style={{ marginTop: 12 }}>
                 <button className="btn" onClick={() => setTab('available')}>{t('Найти заказ')}</button>
@@ -192,24 +201,30 @@ export default function WorkerPage() {
             <div className="stat"><div className="l">{t('Из них чаевые')}</div><div className="v">{money(done.reduce((a, o) => a + (o.tip || 0), 0), cur)}</div></div>
             <div className="stat"><div className="l">{t('Рейтинг')}</div><div className="v">{(() => { const r = done.filter((o) => o.rating); return r.length ? (r.reduce((a, o) => a + o.rating, 0) / r.length).toFixed(1) + ' ★' : '—'; })()}</div></div>
           </div>
-          <div style={{ marginTop: 12 }}><PushToggle vapidKey={me.vapidPublicKey} /></div>
-          <h2 style={{ marginTop: 20 }}>{t('История')}</h2>
-          {done.length === 0 && <div className="empty">{t('Здесь будут выполненные заказы')}</div>}
-          {done.map((o) => (
-            <div key={o.id} className="card tap" onClick={() => setHistoryOpen(o)}>
-              <div className="row between">
-                <div className="grow">
-                  <div className="small muted">№{o.num} · {fmtDate(o.completedAt)}</div>
-                  <div style={{ fontWeight: 650 }}>{addrLine(o.address)}</div>
-                  {o.rating && <div className="small" style={{ color: '#f59e0b' }}>{'★'.repeat(o.rating)}</div>}
-                </div>
-                <b>+{money(o.workerShare + (o.tip || 0), o.currency)}</b>
-              </div>
+          <div className="label">{t('История')}</div>
+          {done.length === 0 ? (
+            <div className="empty">{t('Здесь будут выполненные заказы')}</div>
+          ) : (
+            <div className="menu">
+              {done.map((o) => (
+                <MenuRow
+                  key={o.id}
+                  icon={SERVICE_ICON[o.service || 'trash']}
+                  title={addrLine(o.address, false)}
+                  hint={`№${o.num} · ${fmtDate(o.completedAt)}${o.rating ? ` · ${'★'.repeat(o.rating)}` : ''}`}
+                  onClick={() => setHistoryOpen(o)}
+                  right={<b style={{ color: 'var(--g700)' }}>+{money(o.workerShare + (o.tip || 0), o.currency)}</b>}
+                />
+              ))}
             </div>
-          ))}
-          <div className="card row between" style={{ marginTop: 20 }}><span>{t('Язык')}</span><LangSwitch /></div>
-          <div className="small muted center">{me.user.name} · {me.user.phone}</div>
-          <button className="btn danger block" onClick={logout}>{t('Выйти')}</button>
+          )}
+          <div className="label">{me.user.name} · {me.user.phone}</div>
+          <div className="menu">
+            <MenuRow icon="globe" title={t('Язык')} right={<LangSwitch compact />} />
+            <PushToggle vapidKey={me.vapidPublicKey} />
+            <MenuRow icon="help" tone="gray" title={t('Как пользоваться')} onClick={() => setTour(true)} />
+            <MenuRow icon="logout" danger title={t('Выйти')} onClick={logout} right={<span />} />
+          </div>
         </div>
       )}
 
@@ -226,7 +241,7 @@ export default function WorkerPage() {
         tabs={[
           { key: 'available', label: t('Заказы'), icon: Icon.inbox, dot: data?.available.length },
           { key: 'active', label: t('В работе'), icon: Icon.truck, dot: active.length },
-          { key: 'earn', label: t('Заработок'), icon: Icon.wallet },
+          { key: 'earn', label: t('Заработок'), icon: Icon.chart },
         ]}
       />
     </div>
@@ -260,12 +275,12 @@ function ActiveOrder({ o, onChange }: { o: any; onChange: () => void }) {
       {o.address?.lat && <MapView height={170} markers={[{ lat: o.address.lat, lng: o.address.lng, kind: 'home', label: t('кв. {n}', { n: o.address.apt }) }]} />}
       {PAID_IN_APP(o.payment) && (
         <div className={o.paymentStatus === 'paid' ? 'note small' : 'banner'} style={{ margin: 0 }}>
-          {o.paymentStatus === 'paid' ? `✅ ${t('Клиент оплатил в приложении, деньги брать не нужно')}` : `⏳ ${t('Клиент ещё не оплатил онлайн')}`}
+          <span className="row"><I n={o.paymentStatus === 'paid' ? 'check' : 'clock'} size={18} />{o.paymentStatus === 'paid' ? t('Клиент оплатил в приложении, деньги брать не нужно') : t('Клиент ещё не оплатил онлайн')}</span>
         </div>
       )}
       <div className="row">
-        <a className="btn ghost sm grow" href={`tel:${o.clientPhone}`}>📞 {t('Позвонить')}</a>
-        <a className="btn ghost sm grow" href={mapsLink(o.address)} target="_blank" rel="noreferrer">🗺️ {t('Маршрут')}</a>
+        <a className="btn ghost sm grow" href={`tel:${o.clientPhone}`}><I n="phone" size={18} />{t('Позвонить')}</a>
+        <a className="btn ghost sm grow" href={mapsLink(o.address)} target="_blank" rel="noreferrer"><I n="route" size={18} />{t('Маршрут')}</a>
       </div>
       {!!o.clientPhotos?.length && (
         <div>
@@ -274,7 +289,7 @@ function ActiveOrder({ o, onChange }: { o: any; onChange: () => void }) {
         </div>
       )}
       <div>
-        <h3>{t('Чек-лист')}</h3>
+        <SectionTitle icon="list">{t('Чек-лист')}</SectionTitle>
         <ul className="checklist">
           {steps.map((s, i) => {
             const d = o.steps?.[s.key];
