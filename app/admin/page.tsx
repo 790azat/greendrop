@@ -5,6 +5,7 @@ import { Brand, LogoMark } from '@/components/Logo';
 import { OrderSummary, Timeline } from '@/components/OrderDetails';
 import { Badge, Modal, Spinner, api, addrLine, fmtDate, logout, t, toast, useMe, usePoll } from '@/components/ui';
 import { LangSwitch, locale, useLang } from '@/components/i18n';
+import { I } from '@/components/Icons';
 import { PAYMENT_LABEL, SERVICES, WEEKDAYS, money } from '@/lib/domain';
 
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
@@ -55,6 +56,7 @@ function AdminLogin({ onDone }: { onDone: () => void }) {
 
 function Admin({ me, reload }: { me: any; reload: () => void }) {
   const [tab, setTab] = useState('overview');
+  const [sub, setSub] = useState('');
   const [orders, setOrders] = useState<any[] | null>(null);
   const [users, setUsers] = useState<any[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -72,15 +74,18 @@ function Admin({ me, reload }: { me: any; reload: () => void }) {
   const cur = me.settings.currency;
   const openOrder = orders?.find((o) => o.id === open);
 
-  const tabs = [
-    ['overview', t('Обзор')],
-    ['orders', `${t('Заказы')}${orders ? ` (${orders.length})` : ''}`],
-    ['workers', `${t('Исполнители')}${pendingWorkers.length ? ` · ${t('{n} новых', { n: pendingWorkers.length })}` : ''}`],
-    ['map', t('Карта')],
-    ['subs', t('Подписки')],
-    ['clients', t('Клиенты')],
-    ['settings', t('Настройки')],
+  // 5 sections instead of 7: subscriptions live under orders, workers + clients under people
+  const tabs: [string, string, string, number?][] = [
+    ['overview', t('Обзор'), 'chart'],
+    ['orders', t('Заказы'), 'list', orders?.length],
+    ['map', t('Карта'), 'map'],
+    ['people', t('Люди'), 'users', pendingWorkers.length || undefined],
+    ['settings', t('Настройки'), 'settings'],
   ];
+  const go = (k: string, s = '') => {
+    setTab(k);
+    setSub(s);
+  };
 
   return (
     <div className="shell wide" style={{ paddingBottom: 40 }}>
@@ -88,7 +93,7 @@ function Admin({ me, reload }: { me: any; reload: () => void }) {
         <a href="/admin" style={{ textDecoration: 'none' }}><Brand /></a>
         <div className="row">
           <LangSwitch compact />
-          <button className="btn plain sm" onClick={logout}>{t('Выйти')}</button>
+          <button className="iconbtn" onClick={logout} aria-label={t('Выйти')} title={t('Выйти')}><I n="logout" size={20} /></button>
         </div>
       </div>
       {me.demoDb && (
@@ -97,8 +102,10 @@ function Admin({ me, reload }: { me: any; reload: () => void }) {
         </div>
       )}
       <div className="seg" style={{ marginBottom: 16 }}>
-        {tabs.map(([k, l]) => (
-          <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>
+        {tabs.map(([k, l, ic, n]) => (
+          <button key={k} className={tab === k ? 'on' : ''} onClick={() => go(k)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <I n={ic} size={18} />{l}{n ? <span className="badge green" style={{ padding: '1px 7px' }}>{n}</span> : null}
+          </button>
         ))}
       </div>
 
@@ -106,12 +113,22 @@ function Admin({ me, reload }: { me: any; reload: () => void }) {
         <Spinner />
       ) : (
         <>
-          {tab === 'overview' && <Overview orders={orders} workers={workers} clients={clients} cur={cur} onOpen={setOpen} pending={pendingWorkers.length} goWorkers={() => setTab('workers')} />}
-          {tab === 'orders' && <Orders orders={orders} onOpen={setOpen} />}
-          {tab === 'workers' && <Workers workers={workers} cur={cur} reload={loadUsers} />}
-          {tab === 'clients' && <Clients clients={clients} cur={cur} reload={loadUsers} />}
+          {tab === 'overview' && <Overview orders={orders} workers={workers} clients={clients} cur={cur} onOpen={setOpen} pending={pendingWorkers.length} goWorkers={() => go('people', 'workers')} />}
+          {(tab === 'orders' || tab === 'people') && (
+            <div className="chips" style={{ marginBottom: 14 }}>
+              {(tab === 'orders'
+                ? [['orders', t('Разовые'), 'list'], ['subs', t('Подписки'), 'repeat']]
+                : [['workers', `${t('Исполнители')}${pendingWorkers.length ? ` · ${t('{n} новых', { n: pendingWorkers.length })}` : ''}`, 'bag'], ['clients', t('Клиенты'), 'home']]
+              ).map(([k, l, ic], i) => (
+                <button key={k} className={`chip ${(sub || (i === 0 ? k : '')) === k ? 'on' : ''}`} onClick={() => setSub(k)}><I n={ic} size={16} />{l}</button>
+              ))}
+            </div>
+          )}
+          {tab === 'orders' && sub !== 'subs' && <Orders orders={orders} onOpen={setOpen} />}
+          {tab === 'orders' && sub === 'subs' && <AdminSubs cur={cur} />}
+          {tab === 'people' && sub !== 'clients' && <Workers workers={workers} cur={cur} reload={loadUsers} />}
+          {tab === 'people' && sub === 'clients' && <Clients clients={clients} cur={cur} reload={loadUsers} />}
           {tab === 'map' && <LiveMap orders={orders} workers={workers} onOpen={setOpen} />}
-          {tab === 'subs' && <AdminSubs cur={cur} />}
           {tab === 'settings' && <SettingsForm onSaved={reload} />}
         </>
       )}

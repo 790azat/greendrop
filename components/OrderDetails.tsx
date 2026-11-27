@@ -1,5 +1,6 @@
 'use client';
 import { Badge, Photo, addrLine, fmtDate, fmtWhen, Icon, t } from './ui';
+import { IconBox, SERVICE_ICON } from './Icons';
 import { PAYMENT_LABEL, SERVICES, SIZE_LABEL, money, stepsFor } from '@/lib/domain';
 
 export function OrderSummary({ o, showContacts = true }: { o: any; showContacts?: boolean }) {
@@ -14,7 +15,7 @@ export function OrderSummary({ o, showContacts = true }: { o: any; showContacts?
       <dd>{fmtWhen(o.when)}{o.express ? ` · ${t('срочно')}` : ''}</dd>
       <dt>{t('Услуга')}</dt>
       <dd>
-        {SERVICES[o.service || 'trash']?.icon} {t(SERVICES[o.service || 'trash']?.title)}
+        {t(SERVICES[o.service || 'trash']?.title)}
         {o.subscriptionId ? ` · ${t('по подписке')}` : ''}
       </dd>
       <dt>{t('Объём')}</dt>
@@ -127,10 +128,11 @@ export function orderProgress(o: any) {
 
 export function OrderHead({ o }: { o: any }) {
   return (
-    <div className="row between" style={{ alignItems: 'flex-start' }}>
+    <div className="ohead">
+      <IconBox n={SERVICE_ICON[o.service || 'trash']} />
       <div className="grow">
+        <b>{addrLine(o.address, false)}</b>
         <div className="small muted">{t('Заказ №{n}', { n: o.num })} · {fmtDate(o.createdAt)}</div>
-        <div style={{ fontWeight: 700, marginTop: 2 }}>{SERVICES[o.service || 'trash']?.icon} {addrLine(o.address)}</div>
       </div>
       <Badge status={o.status} />
     </div>

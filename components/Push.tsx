@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api, t, toast } from './ui';
+import { MenuRow, api, t, toast } from './ui';
 
 function urlB64ToUint8Array(base64: string) {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);
@@ -51,15 +51,16 @@ export function PushToggle({ vapidKey }: { vapidKey?: string | null }) {
 
   if (state === 'unknown') return null;
   if (state === 'ios-install')
-    return (
-      <div className="note small">
-        🔔 {t('На iPhone уведомления работают, когда приложение установлено на экран «Домой».')} <a href="/install">{t('Как установить')}</a>
-      </div>
-    );
-  if (state === 'unsupported') return <div className="small muted">🔔 {t('Push-уведомления не поддерживаются в этом браузере.')}</div>;
-  return state === 'on' ? (
-    <button className="btn ghost block" onClick={disable}>🔔 {t('Уведомления включены · выключить')}</button>
-  ) : (
-    <button className="btn block" onClick={enable}>🔔 {t('Включить уведомления')}</button>
+    return <MenuRow icon="bell" title={t('Уведомления')} hint={t('На iPhone уведомления работают, когда приложение установлено на экран «Домой».')} href="/install" />;
+  if (state === 'unsupported') return <MenuRow icon="bell" tone="gray" title={t('Уведомления')} hint={t('Push-уведомления не поддерживаются в этом браузере.')} />;
+  const on = state === 'on';
+  return (
+    <MenuRow
+      icon="bell"
+      title={t('Уведомления')}
+      hint={on ? t('Включены') : t('Узнавайте о каждом шаге заказа')}
+      onClick={on ? disable : enable}
+      right={<span className={`switch ${on ? 'on' : ''}`} role="switch" aria-checked={on} />}
+    />
   );
 }
